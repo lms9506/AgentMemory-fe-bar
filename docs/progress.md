@@ -46,16 +46,15 @@ Repo just initialized. Architecture and requirements are drafted (see `architect
 | T3 | Linus | Draft `databricks/lakebase_schema.sql` (tables in `architecture.md` §1) | T2 |
 | T4 | unassigned | Generate synthetic client + portfolio data in `data/synthetic/` | T3 |
 | T5 | unassigned | Skeleton LangGraph agent that calls FM API, no memory yet (M4) | T2 |
-| T6 | unassigned | Decide React vs Streamlit for Apps UI — write ADR | — |
-| T7 | unassigned | Decide embedding model — write ADR | — |
+| T6 | Linus | Decide React vs Streamlit for Apps UI — write ADR | — done: ADR-0003 |
+| T7 | Linus | Decide embedding model — write ADR | — done: ADR-0004 |
 
 ## Decisions pending
 
-- React vs Streamlit for the advisor UI (T6 → ADR)
-- Embedding model choice (T7 → ADR)
-- Audit log location: Lakebase table vs Delta table vs both → ADR
+(none — audit trail settled in ADR-0005)
 
 ## Done
 
 - 2026-05-12 — M0 industry/use case decided (FINS Wealth Advisor) — see `decisions.md` ADR-0001
 - 2026-05-12 — M1 repo scaffolded with context-engineering setup
+- 2026-05-12 — ADR-0003 (React + FastAPI Apps UI), ADR-0004 (`databricks-bge-large-en`), ADR-0005 (Lakebase audit + Delta time travel)

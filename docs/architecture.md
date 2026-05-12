@@ -21,7 +21,7 @@ The accelerator is composed of five Databricks-native layers. Nothing external.
 
 ## 2. Delta Tables (Unity Catalog) — Long-term profile + audit archive
 
-**Role:** Distilled, structured client knowledge. Time-travel is the compliance audit trail.
+**Role:** Distilled, structured client knowledge. **Delta time travel** on `client_profile` answers point-in-time “what did we store?” questions. **Append-only audit events** (actor, action, payload, agent run id) live in **Lakebase `audit_log`** — see ADR-0005.
 
 **Tables:**
 
@@ -42,7 +42,7 @@ A **nightly distillation job** (Databricks Workflow) reads the last N days of `c
   ```
 - **LangChain** provides the tool-calling layer and retrievers
 - The Databricks **stateful-agents SDK** wires Lakebase connections with OAuth rotation
-- **Foundation Model API** is the LLM (no external keys; model choice in `docs/decisions.md`)
+- **Foundation Model API** is the LLM and embedding endpoint (no external keys; model choices in `docs/decisions.md`)
 
 The agent is deployed as a Databricks Model Serving endpoint (registered via MLflow).
 
@@ -50,8 +50,8 @@ The agent is deployed as a Databricks Model Serving endpoint (registered via MLf
 
 **Role:** The demo surface — what customers see.
 
-- Python backend (FastAPI or the Apps default) → calls the Model Serving endpoint
-- Frontend: React or Streamlit (TBD in `docs/decisions.md`)
+- FastAPI backend → calls the Model Serving endpoint
+- Frontend: React (TypeScript) SPA — see ADR-0003 in `docs/decisions.md`
 - Panels: live transcript, retrieved-memory inspector, distilled-profile viewer, human-in-the-loop edit form
 - Hosted entirely inside Databricks — zero infrastructure for the customer
 

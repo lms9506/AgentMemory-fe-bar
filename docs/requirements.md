@@ -27,13 +27,13 @@ A scheduled distillation job reads recent episodic memory and updates a **Delta 
 Two advisors working with the same client see the same memory state. Memory is keyed on `client_id`, not `advisor_id`. Per-advisor private scratchpad is out of scope for v1.
 
 ### FR-5 — Audit trail
-Every write to long-term memory emits a row to an `audit_log` table (Lakebase or Delta — see ADR) with: `who`, `what changed`, `source turns`, `timestamp`, `agent run id`. The audit log is append-only.
+Every write to long-term memory emits a row to the Lakebase `audit_log` table (see ADR-0005) with: `who`, `what changed`, `source turns`, `timestamp`, `agent run id`. Distilled profile state is additionally versioned in Delta for time-travel audit. The Lakebase audit log is append-only.
 
 ### FR-6 — Human-in-the-loop memory edits
 The advisor UI surfaces "the agent thinks X about this client." The advisor can confirm, reject, or edit. Edits write to memory the same way agent-derived facts do, but flagged `source = human`.
 
 ### FR-7 — Advisor-facing app
-A **Databricks App** (Python backend, React or Streamlit frontend — TBD in ADR) shows:
+A **Databricks App** (FastAPI backend, React frontend — ADR-0003) shows:
 - Live conversation transcript
 - Currently-retrieved memory snippets (with relevance scores)
 - The distilled client profile (with last-updated, source attribution)

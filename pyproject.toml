@@ -30,7 +30,6 @@ dev = [
 app = [
     "fastapi>=0.115.0",
     "uvicorn>=0.32.0",
-    "streamlit>=1.40.0",
 ]
 
 [build-system]
