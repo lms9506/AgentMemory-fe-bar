@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "databricks": {
+      "command": "uvx",
+      "args": [
+        "databricks-mcp-server@latest"
+      ],
+      "env": {
+        "DATABRICKS_HOST": "${DATABRICKS_HOST}",
+        "DATABRICKS_TOKEN": "${DATABRICKS_TOKEN}"
+      }
+    }
+  }
+}

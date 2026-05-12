@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# Virtual envs
+.venv/
+venv/
+.env
+.env.local
+
+# uv
+.python-version
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Databricks
+.databricks/
+*.databricks-bundle
+
+# Generated synthetic data (generators are checked in; output is not)
+data/synthetic/output/
+data/synthetic/*.csv
+data/synthetic/*.parquet
+
+# Local MLflow runs
+mlruns/
+mlartifacts/
+
+# Secrets — never commit
+*.pem
+*.key
+credentials.json
+service-account*.json
