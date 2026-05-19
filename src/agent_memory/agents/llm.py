@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from agent_memory.config import Settings
+from agent_memory.config import Settings, ensure_databricks_auth
 
 
 def build_chat_model(settings: Settings | None = None) -> BaseChatModel:
     """Return a chat model backed by FM API when credentials exist."""
     cfg = settings or Settings.from_env()
-    if not cfg.databricks_configured:
-        msg = (
-            "DATABRICKS_HOST and DATABRICKS_TOKEN must be set to call the Foundation Model API. "
+    if not ensure_databricks_auth(cfg):
+        raise RuntimeError(
+            "Databricks auth failed. "
+            f"{cfg.auth_diagnostics()}. "
             "Use build_chat_model_for_tests() in unit tests."
         )
-        raise RuntimeError(msg)
 
     from langchain_community.chat_models import ChatDatabricks
 

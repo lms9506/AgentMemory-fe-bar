@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import os
 
 import mlflow
 from langchain_core.messages import HumanMessage
 
 from agent_memory.agents.graph import build_default_graph
 from agent_memory.agents.state import AdvisorAgentState
-from agent_memory.config import Settings
+from agent_memory.config import Settings, ensure_databricks_auth
 
 
 def run_turn(
@@ -60,16 +59,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not os.getenv("DATABRICKS_HOST") or not os.getenv("DATABRICKS_TOKEN"):
-        raise SystemExit(
-            "Set DATABRICKS_HOST and DATABRICKS_TOKEN (see .env.example) to call the FM API."
-        )
+    settings = Settings.from_env()
+    if not ensure_databricks_auth(settings):
+        raise SystemExit(f"Databricks auth failed. {settings.auth_diagnostics()}")
 
     reply = run_turn(
         client_id=args.client_id,
         advisor_id=args.advisor_id,
         session_id=args.session_id,
         user_message=args.message,
+        settings=settings,
     )
     print(reply)
 
