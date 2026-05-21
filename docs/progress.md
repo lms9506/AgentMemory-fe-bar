@@ -10,7 +10,7 @@ Ship a Databricks Solution Accelerator: *AI Wealth Advisor with persistent clien
 
 ## Active phase: Implementation
 
-Architecture, requirements, and ADRs are settled. Building toward M4 (stack wiring) and M3 (schema + synthetic data).
+Architecture, requirements, and ADRs are settled. M4 complete; building M5 (Lakebase episodic + semantic memory).
 
 ## Stakeholders
 
@@ -26,10 +26,10 @@ Architecture, requirements, and ADRs are settled. Building toward M4 (stack wiri
 
 - [x] **M0** — Industry + use case decision: Financial Services / Wealth Advisor *(done 2026-05)*
 - [x] **M1** — Repo created, context-engineering scaffold landed *(done 2026-05-12)*
-- [ ] **M2** — FINS SA co-owner committed (Antoine or David)
+- [x] **M2** — FINS SA co-owner committed (Antoine or David)
 - [x] **M3** — Lakebase schema + synthetic data generator merged *(done 2026-05-19)*
-- [ ] **M4** — Single-turn agent end-to-end (no memory) — proves stack wiring *(in progress)*
-- [ ] **M5** — Episodic memory + pgvector retrieval working
+- [x] **M4** — Single-turn agent end-to-end (no memory) — proves stack wiring *(done 2026-05-19)*
+- [ ] **M5** — Episodic memory + pgvector retrieval working *(in progress)*
 - [ ] **M6** — Distillation job + Delta profile working
 - [ ] **M7** — Databricks App UI with all four panels
 - [ ] **M8** — MLflow eval harness in CI
@@ -42,9 +42,8 @@ Architecture, requirements, and ADRs are settled. Building toward M4 (stack wiri
 | # | Owner | Task | Blocked by |
 |---|---|---|---|
 | T1 | Michael | Ping Antoine Amend / David Hackett with SA proposal doc, set meeting for week of 2026-05-18 | — |
-| T5 | Linus | Validate skeleton LangGraph agent against live FM API in dev workspace (M4) | `.env` + workspace |
-| T8 | unassigned | Apply `lakebase_schema.sql` to dev Lakebase via DAB | dev workspace |
-| T9 | unassigned | Lakebase client module + episodic write path (M5) | T8 |
+| T8 | Linus | Apply `lakebase_schema.sql` to dev Lakebase via DAB | dev workspace |
+| T9 | Linus | Lakebase memory store + wire retrieve/write into LangGraph (M5) | T8 |
 
 ## Decisions pending
 
@@ -56,4 +55,4 @@ Architecture, requirements, and ADRs are settled. Building toward M4 (stack wiri
 - 2026-05-12 — M1 repo scaffolded with context-engineering setup
 - 2026-05-12 — ADR-0003 (React + FastAPI Apps UI), ADR-0004 (`databricks-bge-large-en`), ADR-0005 (Lakebase audit + Delta time travel)
 - 2026-05-19 — M3: `lakebase_schema.sql` + synthetic generator (`src/agent_memory/synthetic/`, `uv run agent-memory-synthetic`)
-- 2026-05-19 — M4 scaffold: LangGraph single-turn agent (`src/agent_memory/agents/`), CI-tested with fake LLM
+- 2026-05-19 — M4: LangGraph single-turn agent live against FM API (`agent-memory-chat`, CLI profile auth)

@@ -97,6 +97,7 @@ class Settings:
     uc_catalog: str
     uc_schema: str
     lakebase_database: str | None
+    lakebase_conninfo: str | None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -120,6 +121,18 @@ class Settings:
             uc_catalog=os.getenv("UC_CATALOG", "agent_memory_dev"),
             uc_schema=os.getenv("UC_SCHEMA", "wealth_advisor"),
             lakebase_database=os.getenv("LAKEBASE_DATABASE"),
+            lakebase_conninfo=os.getenv("LAKEBASE_CONNINFO"),
+        )
+
+    @property
+    def lakebase_configured(self) -> bool:
+        if self.lakebase_conninfo:
+            return True
+        load_local_env()
+        return bool(
+            os.getenv("LAKEBASE_HOST")
+            and os.getenv("LAKEBASE_USER")
+            and os.getenv("LAKEBASE_PASSWORD")
         )
 
     @property

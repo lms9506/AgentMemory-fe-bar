@@ -1,4 +1,4 @@
-"""Local entrypoint for a single advisor turn (M4 smoke run)."""
+"""Local entrypoint for advisor turns with optional Lakebase memory."""
 
 from __future__ import annotations
 
@@ -19,10 +19,20 @@ def run_turn(
     session_id: str,
     user_message: str,
     settings: Settings | None = None,
+    with_memory: bool = True,
 ) -> str:
     """Run one advisor turn under MLflow tracing."""
     cfg = settings or Settings.from_env()
-    graph = build_default_graph()
+    if not ensure_databricks_auth(cfg):
+        raise RuntimeError(f"Databricks auth failed. {cfg.auth_diagnostics()}")
+
+    if with_memory and not cfg.lakebase_configured:
+        raise RuntimeError(
+            "Lakebase not configured. Set LAKEBASE_CONNINFO or "
+            "LAKEBASE_HOST/USER/PASSWORD, apply lakebase_schema.sql (T8)."
+        )
+
+    graph = build_default_graph(with_memory=with_memory)
 
     initial: AdvisorAgentState = {
         "client_id": client_id,
@@ -30,17 +40,23 @@ def run_turn(
         "session_id": session_id,
         "messages": [HumanMessage(content=user_message)],
         "response": None,
+        "retrieved_turns": [],
+        "agent_run_id": None,
     }
 
     if cfg.mlflow_experiment_name:
         mlflow.set_experiment(cfg.mlflow_experiment_name)
 
-    with mlflow.start_run(run_name="advisor_single_turn"):
+    with mlflow.start_run(run_name="advisor_turn"):
+        active = mlflow.active_run()
+        if active is not None:
+            initial["agent_run_id"] = active.info.run_id
         mlflow.set_tags(
             {
                 "client_id": client_id,
                 "advisor_id": advisor_id,
                 "session_id": session_id,
+                "with_memory": str(with_memory),
             }
         )
         final = graph.invoke(initial)
@@ -57,6 +73,11 @@ def main() -> None:
         "--message",
         default="Summarize what we should confirm before discussing retirement income.",
     )
+    parser.add_argument(
+        "--no-memory",
+        action="store_true",
+        help="M4 mode: generate only, no Lakebase read/write",
+    )
     args = parser.parse_args()
 
     settings = Settings.from_env()
@@ -69,6 +90,7 @@ def main() -> None:
         session_id=args.session_id,
         user_message=args.message,
         settings=settings,
+        with_memory=not args.no_memory,
     )
     print(reply)
 

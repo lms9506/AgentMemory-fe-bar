@@ -43,5 +43,6 @@ def test_settings_configured_with_profile_only():
         uc_catalog="c",
         uc_schema="s",
         lakebase_database=None,
+        lakebase_conninfo=None,
     )
     assert s.databricks_configured
