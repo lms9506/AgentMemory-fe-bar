@@ -28,8 +28,9 @@ def run_turn(
 
     if with_memory and not cfg.lakebase_configured:
         raise RuntimeError(
-            "Lakebase not configured. Set LAKEBASE_CONNINFO or "
-            "LAKEBASE_HOST/USER/PASSWORD, apply lakebase_schema.sql (T8)."
+            "Lakebase not configured. Set LAKEBASE_CREDENTIAL_ENDPOINT, "
+            "LAKEBASE_CONNINFO / LAKEBASE_URL, or LAKEBASE_HOST/USER/PASSWORD; "
+            "apply lakebase_schema.sql (T8)."
         )
 
     graph = build_default_graph(with_memory=with_memory)

@@ -6,6 +6,8 @@ import json
 from datetime import UTC, datetime
 from typing import Protocol
 
+from pgvector.psycopg import Vector
+
 from agent_memory.memory.connection import lakebase_connection
 from agent_memory.memory.embeddings import embed_texts
 from agent_memory.memory.models import ConversationTurnRecord, RetrievedTurn
@@ -83,7 +85,7 @@ class LakebaseMemoryStore:
             turn_id, ts = row
 
             if embed:
-                vector = embed_texts([content])[0]
+                vector = Vector(embed_texts([content])[0])
                 cur.execute(
                     """
                     INSERT INTO turn_embeddings (turn_id, client_id, embedding)
@@ -133,7 +135,7 @@ class LakebaseMemoryStore:
         query: str,
         top_k: int = 5,
     ) -> list[RetrievedTurn]:
-        query_vector = embed_texts([query])[0]
+        query_vector = Vector(embed_texts([query])[0])
         with lakebase_connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """

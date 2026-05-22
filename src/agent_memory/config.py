@@ -52,18 +52,47 @@ def _infer_profile_from_host(host: str | None) -> str | None:
     return None
 
 
+def _workspace_auth_ok(host: str, token: str) -> bool:
+    """Return True when credentials can call the workspace API."""
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        WorkspaceClient(host=host, token=token).current_user.me()
+        return True
+    except Exception:
+        return False
+
+
+def _set_workspace_env(host: str, token: str) -> None:
+    os.environ["DATABRICKS_HOST"] = host
+    os.environ["DATABRICKS_TOKEN"] = token
+
+
+def _token_from_workspace_client(client: object) -> str | None:
+    """OAuth CLI profiles often leave `config.token` empty; read the bearer header."""
+    config = client.config  # type: ignore[attr-defined]
+    if config.token:
+        return config.token
+    headers = dict(config.authenticate())
+    auth = headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return None
+
+
 def ensure_databricks_auth(settings: Settings) -> bool:
     """Set `DATABRICKS_HOST` / `DATABRICKS_TOKEN` for LangChain from `.env` or CLI profile."""
     host = _normalize_host(settings.databricks_host)
     if not host:
         return False
 
-    os.environ["DATABRICKS_HOST"] = host
-
     token = settings.databricks_token
     if token:
-        os.environ["DATABRICKS_TOKEN"] = token
-        return True
+        if _workspace_auth_ok(host, token):
+            _set_workspace_env(host, token)
+            return True
+        # Stale PAT exported in the shell can block CLI OAuth fallback.
+        os.environ.pop("DATABRICKS_TOKEN", None)
 
     profile = settings.databricks_profile or _infer_profile_from_host(host)
     if not profile:
@@ -74,14 +103,14 @@ def ensure_databricks_auth(settings: Settings) -> bool:
 
         client = WorkspaceClient(profile=profile)
         client.current_user.me()
-        if client.config.host:
-            os.environ["DATABRICKS_HOST"] = _normalize_host(client.config.host) or host
-        if client.config.token:
-            os.environ["DATABRICKS_TOKEN"] = client.config.token
-            return True
+        resolved_host = _normalize_host(client.config.host) or host
+        resolved_token = _token_from_workspace_client(client)
+        if not resolved_token:
+            return False
+        _set_workspace_env(resolved_host, resolved_token)
+        return True
     except Exception:
         return False
-    return False
 
 
 @dataclass(frozen=True)
@@ -121,14 +150,20 @@ class Settings:
             uc_catalog=os.getenv("UC_CATALOG", "agent_memory_dev"),
             uc_schema=os.getenv("UC_SCHEMA", "wealth_advisor"),
             lakebase_database=os.getenv("LAKEBASE_DATABASE"),
-            lakebase_conninfo=os.getenv("LAKEBASE_CONNINFO"),
+            lakebase_conninfo=os.getenv("LAKEBASE_CONNINFO") or os.getenv("LAKEBASE_URL"),
         )
 
     @property
     def lakebase_configured(self) -> bool:
+        load_local_env()
+        if self.lakebase_conninfo and (
+            os.getenv("LAKEBASE_CREDENTIAL_ENDPOINT")
+            or os.getenv("LAKEBASE_PROJECT")
+            or os.getenv("LAKEBASE_INSTANCE_NAME")
+        ):
+            return self.databricks_configured
         if self.lakebase_conninfo:
             return True
-        load_local_env()
         return bool(
             os.getenv("LAKEBASE_HOST")
             and os.getenv("LAKEBASE_USER")
@@ -152,7 +187,11 @@ class Settings:
         elif token_chars == 0:
             token_note = "no DATABRICKS_TOKEN in `.env`"
         else:
-            token_note = f"DATABRICKS_TOKEN length {token_chars}"
+            token_note = (
+                f"DATABRICKS_TOKEN length {token_chars} in environment "
+                "(remove stale `export DATABRICKS_TOKEN=...` or renew via "
+                "`databricks auth login --profile <profile>`)"
+            )
         profile = self.databricks_profile or _infer_profile_from_host(self.databricks_host)
         profile_note = f"CLI profile `{profile}`" if profile else "no CLI profile inferred from host"
         return f"{token_note}; fallback: {profile_note}"
