@@ -20,6 +20,10 @@ dependencies = [
     "python-dotenv>=1.0.0",
 ]
 
+[project.scripts]
+agent-memory-synthetic = "agent_memory.synthetic.cli:main"
+agent-memory-chat = "agent_memory.agents.run:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
@@ -46,7 +50,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "TCH", "RUF"]
-ignore = ["E501"]
+ignore = ["E501", "TC001", "TC002", "TC003"]
 
 [tool.pyright]
 include = ["src", "tests"]

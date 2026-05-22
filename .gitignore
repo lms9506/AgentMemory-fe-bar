@@ -45,6 +45,7 @@ data/synthetic/*.parquet
 # Local MLflow runs
 mlruns/
 mlartifacts/
+mlflow.db
 
 # Secrets — never commit
 *.pem

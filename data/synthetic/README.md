@@ -1,11 +1,17 @@
 # Synthetic data
 
-Generators for dummy clients, portfolios, and conversation seeds live here. **The generator scripts are checked in; their output is gitignored.**
+Generators for dummy clients, portfolios, and conversation seeds. **Generator code is checked in; output is gitignored.**
 
 No real client data ever enters this directory.
 
-## Planned generators
+## Generate fixtures
 
-- `gen_clients.py` — synthetic client profiles (demographics, risk tolerance, family situation)
-- `gen_portfolios.py` — holdings + transaction history per client
-- `gen_conversations.py` — seed advisor-client conversation transcripts for demo + eval
+```bash
+uv sync
+uv run agent-memory-synthetic
+# or: uv run python data/synthetic/generate.pygi
+```
+
+Writes JSON under `data/synthetic/output/` (`clients.json`, `portfolios.json`, `conversations.json`).
+
+Implementation lives in `src/agent_memory/synthetic/` (importable from tests and notebooks).

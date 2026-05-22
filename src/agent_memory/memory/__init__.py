@@ -1,7 +1,12 @@
-"""Memory subsystem.
+"""Lakebase-backed episodic and semantic memory."""
 
-- `lakebase.py` — connection + low-level read/write (live memory)
-- `retrievers.py` — top-k semantic retrieval over pgvector
-- `distillation.py` — episodic → long-term profile job logic
-- `audit.py` — audit-log helpers (every long-term write goes through here)
-"""
+from agent_memory.memory.models import ConversationTurnRecord, RetrievedTurn
+from agent_memory.memory.store import InMemoryMemoryStore, LakebaseMemoryStore, MemoryStore
+
+__all__ = [
+    "ConversationTurnRecord",
+    "InMemoryMemoryStore",
+    "LakebaseMemoryStore",
+    "MemoryStore",
+    "RetrievedTurn",
+]
