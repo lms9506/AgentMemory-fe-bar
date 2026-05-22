@@ -2,7 +2,7 @@
 
 > Single source of truth for "what is happening right now." Update on task start *and* finish. Convert relative dates to absolute. Keep dead entries — move them to `## Done`, don't delete.
 
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-22
 
 ## North star
 
@@ -10,7 +10,7 @@ Ship a Databricks Solution Accelerator: *AI Wealth Advisor with persistent clien
 
 ## Active phase: Implementation
 
-Architecture, requirements, and ADRs are settled. M4 complete; building M5 (Lakebase episodic + semantic memory).
+Architecture, requirements, and ADRs are settled. **M5** complete (Lakebase episodic + pgvector retrieval, LangGraph memory path, live E2E validated). Building **M6** — distillation job + Delta `client_profile` (DAB nightly job stub exists; notebook not implemented).
 
 ## Stakeholders
 
@@ -29,7 +29,7 @@ Architecture, requirements, and ADRs are settled. M4 complete; building M5 (Lake
 - [x] **M2** — FINS SA co-owner committed (Antoine or David)
 - [x] **M3** — Lakebase schema + synthetic data generator merged *(done 2026-05-19)*
 - [x] **M4** — Single-turn agent end-to-end (no memory) — proves stack wiring *(done 2026-05-19)*
-- [ ] **M5** — Episodic memory + pgvector retrieval working *(in progress)*
+- [x] **M5** — Episodic memory + pgvector retrieval working *(done 2026-05-22)*
 - [ ] **M6** — Distillation job + Delta profile working
 - [ ] **M7** — Databricks App UI with all four panels
 - [ ] **M8** — MLflow eval harness in CI
@@ -42,8 +42,7 @@ Architecture, requirements, and ADRs are settled. M4 complete; building M5 (Lake
 | # | Owner | Task | Blocked by |
 |---|---|---|---|
 | T1 | Michael | Ping Antoine Amend / David Hackett with SA proposal doc, set meeting for week of 2026-05-18 | — |
-| T8 | Linus | Apply `lakebase_schema.sql` to dev Lakebase via DAB | dev workspace |
-| T9 | Linus | Lakebase memory store + wire retrieve/write into LangGraph (M5) | T8 |
+| T12 | Linus | Implement distillation job + UC Delta `client_profile` (M6); fix DAB notebook path | M5 |
 
 ## Decisions pending
 
@@ -56,3 +55,4 @@ Architecture, requirements, and ADRs are settled. M4 complete; building M5 (Lake
 - 2026-05-12 — ADR-0003 (React + FastAPI Apps UI), ADR-0004 (`databricks-bge-large-en`), ADR-0005 (Lakebase audit + Delta time travel)
 - 2026-05-19 — M3: `lakebase_schema.sql` + synthetic generator (`src/agent_memory/synthetic/`, `uv run agent-memory-synthetic`)
 - 2026-05-19 — M4: LangGraph single-turn agent live against FM API (`agent-memory-chat`, CLI profile auth)
+- 2026-05-22 — M5: Lakebase episodic + semantic memory (`LakebaseMemoryStore`, pgvector retrieval, audit on append), LangGraph `retrieve → generate → write_memory`, OAuth Lakebase + FM API embeddings, `agent-memory-chat` with MLflow tracing, `scripts/apply_lakebase_schema.py`, live E2E validated; `.env.shared` team defaults

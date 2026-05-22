@@ -28,10 +28,13 @@ AgentMemory/
 
 ## Getting started
 
-1. `cp .env.example .env` and fill in your Databricks workspace details
-2. `uv sync` (or `pip install -e ".[dev]"`)
-3. Read `CLAUDE.md` → `docs/architecture.md` → `docs/requirements.md`
-4. Pick an open task from `docs/progress.md`
+1. `cp .env.shared .env` and adjust for your workspace (see comments in `.env.shared`)
+2. `databricks auth login --profile <your-profile>` if using CLI OAuth
+3. `uv sync --extra dev`
+4. Read `CLAUDE.md` → `docs/architecture.md` → `docs/requirements.md`
+5. Pick an open task from `docs/progress.md`
+
+**Quick local checks:** `uv run pytest` (no workspace); `uv run agent-memory-chat --no-memory` (FM API only); with Lakebase configured and schema applied, `uv run agent-memory-chat` (full M5 path).
 
 ## Stakeholders
 
