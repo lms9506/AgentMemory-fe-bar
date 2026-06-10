@@ -17,7 +17,10 @@ def build_chat_model(settings: Settings | None = None) -> BaseChatModel:
             "Use build_chat_model_for_tests() in unit tests."
         )
 
-    from langchain_community.chat_models import ChatDatabricks
+    try:
+        from databricks_langchain import ChatDatabricks
+    except ImportError:
+        from langchain_community.chat_models import ChatDatabricks  # type: ignore[no-redef]
 
     return ChatDatabricks(
         endpoint=cfg.fm_api_endpoint,

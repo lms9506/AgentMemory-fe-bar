@@ -2,7 +2,7 @@
 
 ## Python
 
-- Python 3.11+
+- Python 3.10+ (floor is 3.10 to match Databricks Serverless; don't use 3.11-only APIs like `datetime.UTC` — use `timezone.utc`)
 - Formatter + linter: **ruff** (config in `pyproject.toml`)
 - Type-checker: **pyright** (strict for `src/agent_memory/`, basic for `tests/`)
 - Tests: **pytest** — every new module gets at least a smoke test
@@ -13,9 +13,10 @@
 ## Project layout
 
 - Application code goes under `src/agent_memory/` — never in repo root
-- Notebooks are for **humans reading them** (demos, exploration). Don't `import` from notebooks. Anything reusable graduates to `src/`
+- Notebooks are the **non-expert deploy + demo path** and are for humans reading them. They orchestrate setup (provision, seed) and walk a customer through the accelerator. Don't `import` from notebooks; anything reusable graduates to `src/`
 - Synthetic data lives in `data/synthetic/`. The generator is checked in, the *output* is gitignored
 - Real PII never enters the repo. Ever.
+- **Legibility bar:** a new SA without deep platform expertise should be able to follow the structure and deploy via `databricks bundle deploy` + the setup notebooks. Keep the happy path short and the module layout obvious.
 
 ## Commits & branches
 

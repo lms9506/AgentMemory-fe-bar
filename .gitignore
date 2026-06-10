@@ -5,7 +5,7 @@ __pycache__/
 *.egg-info/
 .eggs/
 build/
-dist/
+/dist/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
@@ -42,10 +42,19 @@ data/synthetic/output/
 data/synthetic/*.csv
 data/synthetic/*.parquet
 
+# Node (advisor UI)
+node_modules/
+src/agent_memory/ui/frontend/dist/
+
 # Local MLflow runs
 mlruns/
 mlartifacts/
 mlflow.db
+
+# michael-build swarm scratch (research/design/critique artifacts; not repo deliverables)
+.swarm/
+/architecture/
+/research/
 
 # Secrets — never commit
 *.pem

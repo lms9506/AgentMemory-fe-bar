@@ -1,4 +1,4 @@
-"""Pydantic models for synthetic wealth-advisor demo data."""
+"""Pydantic models for synthetic wealth-advisor demo data — dossier model (D7)."""
 
 from __future__ import annotations
 
@@ -35,18 +35,32 @@ class Portfolio(BaseModel):
     total_value_usd: float
 
 
-class ConversationTurn(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str
+class DossierArtifact(BaseModel):
+    """A single synthetic dossier artifact (plain text content) for a client.
 
+    The ``kind`` field uses the ArtifactKind vocabulary (pdf/image/docx/text/other).
+    D7 generates plain-text content only — all synthetic artifacts have kind='text'
+    so extract_text routes them through the plain-text path (not ai_parse_document).
 
-class ConversationSeed(BaseModel):
-    """Seed transcript for episodic-memory demos and retrieval eval."""
+    The ``category`` field captures what TYPE of document this is: 'note' (meeting
+    note), 'statement' (brokerage statement), or 'doc' (advisory questionnaire).
+    This is the dimension that legitimately varies across generated artifacts.
+    """
 
     client_id: str
     advisor_id: str
-    session_id: str
-    turns: list[ConversationTurn]
+    kind: Literal["pdf", "image", "docx", "text", "other"]
+    category: Literal["note", "statement", "doc"]
+    original_filename: str
+    content: str                   # UTF-8 plain text (the bytes that will be ingested)
+
+
+class DossierSeed(BaseModel):
+    """All artifacts generated for one client."""
+
+    client_id: str
+    advisor_id: str
+    artifacts: list[DossierArtifact]
 
 
 class SyntheticDataset(BaseModel):
@@ -54,4 +68,4 @@ class SyntheticDataset(BaseModel):
 
     clients: list[ClientProfile]
     portfolios: list[Portfolio]
-    conversations: list[ConversationSeed]
+    artifacts: list[DossierArtifact]   # was conversations

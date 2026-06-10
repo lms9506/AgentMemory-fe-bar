@@ -1,0 +1,177 @@
+bundle:
+  name: agent-memory
+
+# Vite output is gitignored; must be built before deploy (see scripts/deploy_bundle.sh).
+sync:
+  include:
+    - src/agent_memory/ui/frontend/dist/**
+
+variables:
+  catalog:
+    description: Unity Catalog for Delta tables
+    default: agent_memory_dev
+  schema:
+    description: UC schema for the accelerator
+    default: wealth_advisor
+  sql_warehouse_id:
+    description: SQL warehouse for Delta profile reads/writes
+    default: ""
+  lakebase_instance:
+    description: Lakebase instance name
+    default: agent-memory-dev
+  lakebase_project:
+    description: Lakebase project path (projects/<name>)
+    default: projects/agent-memory-dev
+  lakebase_branch:
+    description: Lakebase branch path
+    default: projects/agent-memory-dev/branches/production
+  volume_name:
+    description: UC Volume name for raw artifact storage (dossier model)
+    default: dossier_raw
+
+artifacts:
+  agent_memory_wheel:
+    type: whl
+    build: uv build
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      # FEVM dev — edit host/profile when deploying to another workspace.
+      host: https://fevm-serverless-stable-2eacei.cloud.databricks.com
+      profile: fevm-serverless-stable-2eacei
+    variables:
+      catalog: serverless_stable_2eacei_catalog
+      sql_warehouse_id: f0d67490142c3236
+      lakebase_project: projects/agent-memory
+      lakebase_branch: projects/agent-memory/branches/production
+
+  prod:
+    mode: production
+    workspace:
+      host: https://fevm-serverless-stable-2eacei.cloud.databricks.com
+      profile: fevm-serverless-stable-2eacei
+    variables:
+      catalog: agent_memory_prod
+      lakebase_instance: agent-memory-prod
+      lakebase_project: projects/agent-memory-prod
+      lakebase_branch: projects/agent-memory-prod/branches/production
+
+resources:
+  volumes:
+    dossier_raw_volume:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: ${var.volume_name}
+      volume_type: MANAGED
+      # App SP requires READ+WRITE VOLUME; grant in 00_setup.py and via workspace UI.
+      # Example: GRANT READ VOLUME, WRITE VOLUME ON VOLUME <catalog>.<schema>.<volume> TO <app_sp>;
+
+  jobs:
+    distillation_nightly:
+      name: agent-memory-distillation-${bundle.target}
+      schedule:
+        quartz_cron_expression: "0 0 2 * * ?"
+        timezone_id: Europe/Berlin
+      tasks:
+        - task_key: distill_profiles
+          environment_key: default
+          python_wheel_task:
+            package_name: agent_memory
+            entry_point: distill
+            named_parameters:
+              lookback-days: "7"
+              databricks-host: https://fevm-serverless-stable-2eacei.cloud.databricks.com
+              uc-catalog: ${var.catalog}
+              uc-schema: ${var.schema}
+              warehouse-id: ${var.sql_warehouse_id}
+              fm-endpoint: databricks-meta-llama-3-3-70b-instruct
+              fm-embedding-endpoint: databricks-gte-large-en
+              mlflow-experiment: /Shared/agent-memory/${bundle.target}
+              lakebase-project: ${var.lakebase_project}
+              lakebase-branch: ${var.lakebase_branch}
+              lakebase-url: postgresql://ep-odd-term-d7j3href.database.eu-central-1.cloud.databricks.com/databricks_postgres?sslmode=require
+              lakebase-database: databricks_postgres
+      # FEVM serverless-only workspaces — no job_clusters (see bundle resource examples).
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - dist/agent_memory-0.1.0-py3-none-any.whl
+
+    distillation_hitl_nightly:
+      name: agent-memory-distillation-hitl-${bundle.target}
+      schedule:
+        quartz_cron_expression: "0 0 3 * * ?"
+        timezone_id: Europe/Berlin
+      tasks:
+        - task_key: distill_hitl_profiles
+          environment_key: default
+          python_wheel_task:
+            package_name: agent_memory
+            entry_point: distill
+            named_parameters:
+              lookback-days: "7"
+              hitl: "true"
+              databricks-host: https://fevm-serverless-stable-2eacei.cloud.databricks.com
+              uc-catalog: ${var.catalog}
+              uc-schema: ${var.schema}
+              warehouse-id: ${var.sql_warehouse_id}
+              fm-endpoint: databricks-meta-llama-3-3-70b-instruct
+              fm-embedding-endpoint: databricks-gte-large-en
+              mlflow-experiment: /Shared/agent-memory/${bundle.target}
+              lakebase-project: ${var.lakebase_project}
+              lakebase-branch: ${var.lakebase_branch}
+              lakebase-url: postgresql://ep-odd-term-d7j3href.database.eu-central-1.cloud.databricks.com/databricks_postgres?sslmode=require
+              lakebase-database: databricks_postgres
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - dist/agent_memory-0.1.0-py3-none-any.whl
+
+    eval_nightly:
+      name: agent-memory-eval-${bundle.target}
+      schedule:
+        quartz_cron_expression: "0 0 4 * * ?"
+        timezone_id: Europe/Berlin
+      tasks:
+        - task_key: run_eval
+          environment_key: default
+          python_wheel_task:
+            package_name: agent_memory
+            entry_point: eval
+            named_parameters:
+              top-k: "5"
+              databricks-host: https://fevm-serverless-stable-2eacei.cloud.databricks.com
+              uc-catalog: ${var.catalog}
+              uc-schema: ${var.schema}
+              warehouse-id: ${var.sql_warehouse_id}
+              fm-endpoint: databricks-meta-llama-3-3-70b-instruct
+              fm-embedding-endpoint: databricks-gte-large-en
+              mlflow-experiment: /Shared/agent-memory/${bundle.target}
+              lakebase-project: ${var.lakebase_project}
+              lakebase-branch: ${var.lakebase_branch}
+              lakebase-url: postgresql://ep-odd-term-d7j3href.database.eu-central-1.cloud.databricks.com/databricks_postgres?sslmode=require
+              lakebase-database: databricks_postgres
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              - dist/agent_memory-0.1.0-py3-none-any.whl
+
+  apps:
+    wealth_advisor:
+      name: wealth-advisor-${bundle.target}
+      source_code_path: .
+      resources:
+        - name: lakebase-db
+          postgres:
+            branch: ${var.lakebase_branch}
+            database: ${var.lakebase_branch}/databases/databricks-postgres
+            permission: CAN_CONNECT_AND_CREATE

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from databricks.sdk import WorkspaceClient
 
 from dotenv import load_dotenv
 
 _ENV_LOADED = False
+_AUTH_RESOLVED = False
 
 
 def load_local_env() -> None:
@@ -54,6 +60,8 @@ def _infer_profile_from_host(host: str | None) -> str | None:
 
 def _workspace_auth_ok(host: str, token: str) -> bool:
     """Return True when credentials can call the workspace API."""
+    if not host or not token:
+        return False
     try:
         from databricks.sdk import WorkspaceClient
 
@@ -81,15 +89,30 @@ def _token_from_workspace_client(client: object) -> str | None:
 
 
 def ensure_databricks_auth(settings: Settings) -> bool:
-    """Set `DATABRICKS_HOST` / `DATABRICKS_TOKEN` for LangChain from `.env` or CLI profile."""
+    """Set `DATABRICKS_HOST` / `DATABRICKS_TOKEN` for LangChain from `.env` or CLI profile.
+
+    Auth priority: M2M (CLIENT_ID+SECRET) → PAT (TOKEN) → Profile → SDK default.
+    M2M tokens are managed internally by the SDK; no token is written to env.
+    """
+    global _AUTH_RESOLVED
+    if _AUTH_RESOLVED:
+        return True
     host = _normalize_host(settings.databricks_host)
     if not host:
         return False
+
+    # M2M path: CLIENT_ID + CLIENT_SECRET (Databricks Apps standard injection).
+    # The SDK manages token refresh internally — we only need to set DATABRICKS_HOST.
+    if settings.databricks_client_id and settings.databricks_client_secret:
+        os.environ["DATABRICKS_HOST"] = host
+        _AUTH_RESOLVED = True
+        return True
 
     token = settings.databricks_token
     if token:
         if _workspace_auth_ok(host, token):
             _set_workspace_env(host, token)
+            _AUTH_RESOLVED = True
             return True
         # Stale PAT exported in the shell can block CLI OAuth fallback.
         os.environ.pop("DATABRICKS_TOKEN", None)
@@ -108,9 +131,45 @@ def ensure_databricks_auth(settings: Settings) -> bool:
         if not resolved_token:
             return False
         _set_workspace_env(resolved_host, resolved_token)
+        _AUTH_RESOLVED = True
         return True
     except Exception:
         return False
+
+
+@functools.lru_cache(maxsize=1)
+def get_workspace_client(settings: Settings) -> WorkspaceClient:
+    """Single auth-resolution factory for the whole app.
+    Auth priority: M2M (CLIENT_ID+SECRET) → PAT (TOKEN) → Profile → SDK default.
+    Cached per process; SDK refreshes M2M tokens internally.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    cfg = settings
+    if cfg.databricks_client_id and cfg.databricks_client_secret:
+        return WorkspaceClient(
+            host=cfg.databricks_host,
+            client_id=cfg.databricks_client_id,
+            client_secret=cfg.databricks_client_secret,
+        )
+    if cfg.databricks_token:
+        return WorkspaceClient(host=cfg.databricks_host, token=cfg.databricks_token)
+    if cfg.databricks_profile:
+        return WorkspaceClient(profile=cfg.databricks_profile)
+    return WorkspaceClient()
+
+
+def _reset_auth_cache() -> None:
+    """Reset process-level auth state. Call in test teardown only."""
+    global _AUTH_RESOLVED
+    _AUTH_RESOLVED = False
+    get_workspace_client.cache_clear()
+    # Also clear the connection-layer cache to keep caches in sync.
+    try:
+        from agent_memory.memory.connection import clear_connection_caches
+        clear_connection_caches()
+    except ImportError:
+        pass
 
 
 @dataclass(frozen=True)
@@ -119,6 +178,8 @@ class Settings:
 
     databricks_host: str | None
     databricks_token: str | None
+    databricks_client_id: str | None
+    databricks_client_secret: str | None
     databricks_profile: str | None
     fm_api_endpoint: str
     fm_api_embedding_endpoint: str
@@ -127,6 +188,10 @@ class Settings:
     uc_schema: str
     lakebase_database: str | None
     lakebase_conninfo: str | None
+    volume_name: str = "dossier_raw"
+    max_upload_bytes: int = 25 * 1024 * 1024
+    chunk_tokens: int = 512
+    chunk_overlap_tokens: int = 50
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -134,6 +199,8 @@ class Settings:
         return cls(
             databricks_host=_normalize_host(os.getenv("DATABRICKS_HOST")),
             databricks_token=_normalize_token(os.getenv("DATABRICKS_TOKEN")),
+            databricks_client_id=os.getenv("DATABRICKS_CLIENT_ID") or None,
+            databricks_client_secret=os.getenv("DATABRICKS_CLIENT_SECRET") or None,
             databricks_profile=os.getenv("DATABRICKS_PROFILE"),
             fm_api_endpoint=os.getenv(
                 "FM_API_ENDPOINT",
@@ -151,6 +218,10 @@ class Settings:
             uc_schema=os.getenv("UC_SCHEMA", "wealth_advisor"),
             lakebase_database=os.getenv("LAKEBASE_DATABASE"),
             lakebase_conninfo=os.getenv("LAKEBASE_CONNINFO") or os.getenv("LAKEBASE_URL"),
+            volume_name=os.getenv("VOLUME_NAME", "dossier_raw"),
+            max_upload_bytes=int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024))),
+            chunk_tokens=int(os.getenv("CHUNK_TOKENS", "512")),
+            chunk_overlap_tokens=int(os.getenv("CHUNK_OVERLAP_TOKENS", "50")),
         )
 
     @property
@@ -174,6 +245,8 @@ class Settings:
     def databricks_configured(self) -> bool:
         if not self.databricks_host:
             return False
+        if self.databricks_client_id and self.databricks_client_secret:
+            return True
         if self.databricks_token:
             return True
         return bool(self.databricks_profile or _infer_profile_from_host(self.databricks_host))

@@ -1,117 +1,118 @@
 # Architecture
 
-The accelerator is composed of five Databricks-native layers. Nothing external.
+The accelerator is Databricks-native end to end. Memory lives in three governed tiers, fed by a synchronous ingest pipeline and read by a query/brainstorm agent.
 
-## 1. Lakebase (Postgres + pgvector) — Live memory store
+## The storage triad
 
-**Role:** Source of truth for *live* memory — both raw conversation turns (episodic) and their vector embeddings (semantic).
+| Tier | Home | Holds | Role |
+|---|---|---|---|
+| **Raw bytes** | **UC Volume** | the original uploaded files, unchanged | immutable books-and-records artifact |
+| **Live memory** | **Lakebase (Postgres + pgvector)** | artifacts (episodic) + chunk embeddings (semantic) + current profile pointer + audit + proposals | the agent-memory store, hot path |
+| **Archive** | **Delta (Unity Catalog)** | immutable distilled-profile versions | point-in-time "what did we believe on date T?" via time travel |
 
-**Tables (see `databricks/lakebase_schema.sql`):**
+**Invariant:** Lakebase = live, Delta = archived, Volume = raw. Don't query Delta in the hot path; don't write Delta from the agent directly (only distillation writes it).
+
+## 1. Ingest pipeline (synchronous)
+
+The advisor drops a file into the app. The request runs four steps and returns once the summary + any proposal are ready (some lag is acceptable; the UI shows progress):
+
+```
+upload ──▶ 1. raw save (UC Volume) + content hash  ──▶ dedup check
+       └─▶ 2. ai_parse_document → extracted text → chunk → embed → Lakebase pgvector
+       └─▶ 3. summarize this artifact → Lakebase (timeline entry)
+       └─▶ 4. distill (if new content) → propose profile delta → profile_proposals
+```
+
+- **Step 1 — raw save.** Bytes go to `/Volumes/<catalog>/<schema>/dossier_raw/<client_id>/<artifact_id>.<ext>`. A SHA-256 of the bytes is the dedup key; a re-upload of identical bytes short-circuits.
+- **Step 2 — extraction.** `ai_parse_document` (PDF, images, scans). Plain text skips parsing; `.docx` may pre-convert to PDF. Extracted text is chunked and embedded with `databricks-bge-large-en` (1024-d) into pgvector.
+- **Step 3 — summary.** An LLM summary of just this artifact, auto-committed. Low-stakes.
+- **Step 4 — profile delta.** Triggered distillation runs *if* this client has new artifacts since its last distillation; the result is a **proposal**, not a commit (FR-6). High-stakes → human-in-the-loop.
+
+## 2. Lakebase (Postgres + pgvector) — live memory store
+
+Source of truth for *live* memory. Governed by Unity Catalog; autoscaling + automatic OAuth rotation via the stateful-agents SDK; sits inside the lakehouse (no egress, no extra credentials).
+
+**Target tables** (see `databricks/lakebase_schema.sql`):
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `conversation_turns` | Append-only conversation log | `turn_id`, `client_id`, `advisor_id`, `session_id`, `role`, `content`, `ts` |
-| `turn_embeddings` | pgvector index for semantic recall | `turn_id`, `embedding vector(1024)` |
-| `audit_log` | Every memory write, including human edits | `event_id`, `actor`, `action`, `target_ref`, `payload_json`, `ts` |
+| `artifacts` | Episodic memory — one row per ingested dossier item | `artifact_id`, `client_id`, `advisor_id`, `kind`, `original_filename`, `volume_path`, `content_hash`, `extracted_text`, `summary`, `sensitivity_tags`, `ingested_at` |
+| `artifact_chunks` | Semantic memory — pgvector recall | `artifact_id`, `client_id`, `chunk_index`, `content`, `embedding vector(1024)` |
+| `audit_log` | Every memory write, incl. HITL actions | `event_id`, `actor`, `actor_kind`, `action`, `target_ref`, `payload`, `agent_run_id`, `ts` |
+| `profile_proposals` | Distilled profiles pending advisor review | `proposal_id`, `client_id`, `proposed_profile`, `source_artifact_ids`, `status`, `reviewed_by` |
+| `clients` | Client registry (display names) | `client_id`, `display_name` |
 
-**Why Lakebase (vs. a generic Postgres):**
-- Governed by Unity Catalog
-- Autoscaling + automatic OAuth rotation via the Databricks stateful-agents SDK
-- Sits inside the lakehouse — no network egress, no extra credentials
+> **Migration note:** v1 shipped a turn/session schema (`conversation_turns`, `turn_embeddings`, `source_turn_ids`). The dossier model replaces it with `artifacts` / `artifact_chunks` / `source_artifact_ids`. Tracked in `docs/progress.md`.
 
-## 2. Delta Tables (Unity Catalog) — Long-term profile + audit archive
+## 3. Delta Tables (Unity Catalog) — long-term profile archive
 
-**Role:** Distilled, structured client knowledge. **Delta time travel** on `client_profile` answers point-in-time “what did we store?” questions. **Append-only audit events** (actor, action, payload, agent run id) live in **Lakebase `audit_log`** — see ADR-0005.
+`client_profile` holds the current distilled view per client (risk tolerance, goals, family, preferences, summary, `source_artifact_ids`). Each accepted proposal is a new Delta version; prior versions are reachable via **Delta time travel** — the compliance answer to "what did we believe on date T?" without duplicating narrative audit payloads (see ADR on audit). See `databricks/delta_schema.sql`.
 
-**Tables:**
+## 4. Mosaic AI Agent Framework — orchestration
 
-| Table | Purpose |
-|---|---|
-| `client_profile` | Current distilled view per client (risk tolerance, goals, family, preferences) — overwritten on each distillation run; prior versions accessible via Delta time travel |
-| `client_profile_history` | Optional materialized history view for advisor UI ("how has this profile evolved?") |
+- **LangGraph** drives two graphs:
+  - *Ingest* — `raw_save → extract → embed → summarize → (maybe) propose`
+  - *Query* — `retrieve (pgvector, client-scoped) → generate (grounded, advice-bounded) → stream`
+- **LangChain** provides the tool/retriever layer.
+- The **stateful-agents SDK** wires Lakebase with OAuth rotation.
+- **Foundation Model API** is the LLM + embedding endpoint (no external keys; model choices in `docs/decisions.md`).
 
-A **nightly distillation job** (Databricks Workflow) reads the last N days of `conversation_turns`, runs an LLM summarizer, and upserts `client_profile`. Every upsert is a new Delta version.
+## 5. Databricks Apps — advisor UI
 
-## 3. Mosaic AI Agent Framework — Orchestration
+FastAPI backend + React (TypeScript) SPA, hosted inside Databricks (zero infra for the customer). Panels:
+- **Dossier timeline** — artifacts with summaries, raw-file links, "contributed to profile?" badges
+- **Query / brainstorm** — natural-language Q&A over the dossier (advice-bounded)
+- **Retrieval inspector** — what the agent pulled, with relevance scores
+- **Distilled profile** — fields with clickable per-field provenance + HITL proposal review
 
-**Role:** The agent runtime.
+## 6. MLflow — evaluation + tracing
 
-- **LangGraph** drives the stateful workflow:
-  ```
-  user_input → retrieve_memory → generate → write_memory → stream_response
-  ```
-- **LangChain** provides the tool-calling layer and retrievers
-- The Databricks **stateful-agents SDK** wires Lakebase connections with OAuth rotation
-- **Foundation Model API** is the LLM and embedding endpoint (no external keys; model choices in `docs/decisions.md`)
-
-The agent is deployed as a Databricks Model Serving endpoint (registered via MLflow).
-
-## 4. Databricks Apps — Advisor UI
-
-**Role:** The demo surface — what customers see.
-
-- FastAPI backend → calls the Model Serving endpoint
-- Frontend: React (TypeScript) SPA — see ADR-0003 in `docs/decisions.md`
-- Panels: live transcript, retrieved-memory inspector, distilled-profile viewer, human-in-the-loop edit form
-- Hosted entirely inside Databricks — zero infrastructure for the customer
-
-## 5. MLflow — Evaluation + Tracing
-
-**Role:** What makes this a "credible 50% solution" — customers can run evals before going to production.
-
-- **Tracing:** Every agent run logs spans (retrieve → generate → write) to MLflow Tracing
-- **Eval:** Two suites
-  - *Retrieval eval* — given a query and a labeled gold memory, did we surface it in top-k?
-  - *Response eval* — LLM-as-judge on synthetic client scenarios, scoring grounding, suitability framing, and tone
-- Eval runs in CI on `src/agent_memory/` changes
-
----
+- **Tracing:** every agent run (ingest and query) logs spans to MLflow Tracing.
+- **Eval:** retrieval eval (did top-k surface the gold artifact?) + response eval (LLM-as-judge: grounding, suitability framing, tone, advice-boundary adherence). Runs in CI on `src/agent_memory/` changes.
 
 ## Data flow (one sentence)
 
-> Client message → LangGraph agent → reads episodic + semantic memory from Lakebase via pgvector → generates response grounded in client history → writes new episodic memory to Lakebase + audit row → nightly distillation job updates the Delta Table client profile.
+> Advisor drops an artifact → it's saved raw to a UC Volume, parsed by `ai_parse_document`, chunked + embedded into Lakebase pgvector, and summarized → if new content exists, distillation proposes a profile delta the advisor reviews → accepted profiles version into Delta with an audit row → later, the advisor queries the dossier and the agent retrieves client-scoped memory to answer, grounded and advice-bounded.
 
 ## Sequence
 
 ```
-┌─────────┐   ┌─────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────┐
-│ Advisor │──▶│ Apps Front  │──▶│  LangGraph   │──▶│   Lakebase   │   │  Delta   │
-│   UI    │   │   (Python)  │   │    Agent     │   │  + pgvector  │   │ Profile  │
-└─────────┘   └─────────────┘   └──────────────┘   └──────────────┘   └──────────┘
-                                       │  retrieve top-k │                  ▲
-                                       │◀────────────────│                  │
-                                       │                                    │
-                                       │   FM API (generate)                │
-                                       │                                    │
-                                       │  append turn + audit               │
-                                       │────────────────▶│                  │
-                                       │                                    │
-                                       │                                    │  nightly
-                                       │                                    │ distillation
-                                       │                                    │  (Workflow)
-                                       └────────────────────────────────────┘
+┌─────────┐  drop file  ┌────────────┐   ┌──────────────┐   ┌──────────┐  ┌──────────┐
+│ Advisor │────────────▶│ Apps (FE)  │──▶│   LangGraph  │──▶│ UC Volume│  │ Lakebase │
+│   UI    │             │  + FastAPI │   │ ingest graph │   │ (raw)    │  │ +pgvector│
+└─────────┘             └────────────┘   └──────────────┘   └──────────┘  └──────────┘
+     ▲                                          │  ai_parse_document            │
+     │   summary + proposal                     │  embed chunks ────────────────▶│
+     │◀─────────────────────────────────────────                                │
+     │                                          │  propose profile delta         │
+     │   review proposal (accept/edit/reject)   │───────────────▶ profile_proposals
+     │                                                                            │
+     │   query dossier                          ┌──────────────┐   accept ──▶ ┌──────┐
+     └─────────────────────────────────────────▶│ query graph  │── version ──▶│ Delta│
+                                                 │ retrieve→gen │   + audit    │profile│
+                                                 └──────────────┘              └──────┘
 ```
 
 ## Repository structure
 
 ```
 src/agent_memory/
-├── agents/        ← LangGraph graph definitions, system prompts
-├── memory/        ← Lakebase clients, retrievers, distillation logic
+├── agents/        ← LangGraph graphs (ingest + query), system prompts
+├── memory/        ← Lakebase clients, retrievers, extraction, distillation
 ├── tools/         ← LangChain tools the agent can call
-└── ui/            ← Databricks App backend + frontend bridge
+└── ui/            ← Databricks App backend + React frontend
 
-src/jobs/         ← Distillation workflow entry points
-databricks/       ← databricks.yml (DABs), app.yaml, lakebase_schema.sql
-notebooks/        ← Demo + exploration notebooks (read by humans, not imported)
-tests/            ← pytest suite
-data/synthetic/   ← Dummy client + portfolio generators
+databricks/        ← databricks.yml (DABs), app.yaml, lakebase_schema.sql, delta_schema.sql
+notebooks/         ← Setup + demo notebooks (the non-expert deploy path; read by humans)
+tests/             ← pytest suite
+data/synthetic/    ← Synthetic client + dossier-artifact generators
 ```
 
 ## Key invariants (don't break these)
 
-1. **Lakebase = live, Delta = archived.** Don't query Delta in the hot path. Don't write to Delta from the agent directly — only the distillation job writes.
-2. **Every long-term write has an audit row.** No exceptions.
+1. **Lakebase = live, Delta = archived, Volume = raw.** Don't query Delta in the hot path; only distillation writes Delta.
+2. **Every long-term write has an audit row, and every profile field has provenance.** No exceptions.
 3. **The agent never reads cross-client memory.** Retrievers are always scoped by `client_id`.
-4. **No PII in the repo.** Synthetic only.
-5. **MLflow trace on every agent run.** No silent paths.
+4. **The agent never gives advice.** Considerations and what-the-file-says only.
+5. **No PII in the repo.** Synthetic only.
+6. **MLflow trace on every agent run.** No silent paths.

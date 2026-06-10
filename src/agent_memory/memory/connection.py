@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import json
+import functools
 import os
-import subprocess
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlparse
 
-from agent_memory.config import Settings, _infer_profile_from_host, load_local_env
+from agent_memory.config import (
+    Settings,
+    _infer_profile_from_host,
+    get_workspace_client,
+    load_local_env,
+)
 
 if TYPE_CHECKING:
     import psycopg
@@ -32,6 +36,20 @@ def _parse_postgres_uri(uri: str) -> dict[str, str | int]:
     }
 
 
+@functools.lru_cache(maxsize=1)
+def _resolve_lakebase_user(cfg: Settings) -> str:
+    """Resolve the workspace user name once per process (cached to avoid per-connection HTTP probe)."""
+    user_name = get_workspace_client(cfg).current_user.me().user_name
+    if user_name is None:
+        raise RuntimeError("Workspace identity returned no user_name; check authentication config.")
+    return user_name
+
+
+def clear_connection_caches() -> None:
+    """Clear module-level caches. Called from _reset_auth_cache in config.py."""
+    _resolve_lakebase_user.cache_clear()
+
+
 def _databricks_profile(cfg: Settings) -> str:
     profile = cfg.databricks_profile or _infer_profile_from_host(cfg.databricks_host)
     if not profile:
@@ -41,57 +59,31 @@ def _databricks_profile(cfg: Settings) -> str:
     return profile
 
 
-def _token_from_cli_json(result: subprocess.CompletedProcess[str], context: str) -> str:
-    if result.returncode != 0:
-        stderr = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(f"Lakebase credential refresh failed for {context}: {stderr}")
-    payload = json.loads(result.stdout)
-    token = payload.get("token")
-    if not token:
-        raise RuntimeError(f"No token in credential response for {context}: {payload}")
-    return token
+def _extract_credential_token(response: object, context: str) -> str:
+    token = getattr(response, "token", None)
+    if token:
+        return token
+    raise RuntimeError(f"No token in credential response for {context}")
 
 
-def _lakebase_oauth_token_autoscale(endpoint: str, profile: str) -> str:
-    """Mint OAuth password for autoscaling Lakebase (postgres API)."""
-    result = subprocess.run(
-        [
-            "databricks",
-            "postgres",
-            "generate-database-credential",
-            endpoint,
-            "--profile",
-            profile,
-            "--output",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return _token_from_cli_json(result, endpoint)
+def _lakebase_oauth_token_autoscale(endpoint: str, cfg: Settings) -> str:
+    """Mint OAuth password for autoscaling Lakebase (via SDK, no CLI dependency)."""
+    client = get_workspace_client(cfg)
+    try:
+        response = client.postgres.generate_database_credential(endpoint=endpoint)
+    except Exception as exc:
+        raise RuntimeError(f"Lakebase credential refresh failed for {endpoint}: {exc}") from exc
+    return _extract_credential_token(response, endpoint)
 
 
-def _lakebase_oauth_token_provisioned(instance_name: str, profile: str) -> str:
-    """Mint OAuth password for provisioned Lakebase (database API, fast)."""
-    body = json.dumps({"instance_names": [instance_name]})
-    result = subprocess.run(
-        [
-            "databricks",
-            "database",
-            "generate-database-credential",
-            "--json",
-            body,
-            "--profile",
-            profile,
-            "--output",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return _token_from_cli_json(result, instance_name)
+def _lakebase_oauth_token_provisioned(instance_name: str, cfg: Settings) -> str:
+    """Mint OAuth password for provisioned Lakebase (via SDK)."""
+    client = get_workspace_client(cfg)
+    try:
+        response = client.database.generate_database_credential(instance_names=[instance_name])
+    except Exception as exc:
+        raise RuntimeError(f"Lakebase credential refresh failed for {instance_name}: {exc}") from exc
+    return _extract_credential_token(response, instance_name)
 
 
 def _build_conninfo(host: str, port: int, database: str, user: str, token: str) -> str:
@@ -115,15 +107,24 @@ def _conninfo_from_template(
     if static_uri:
         parsed = _parse_postgres_uri(static_uri)
         host = host or str(parsed["host"])
-        user = user or str(parsed["user"])
+        # URL user field may be empty after app.yaml strip; prefer env override.
+        url_user = str(parsed["user"])
+        if not user and url_user:
+            user = url_user
         port = int(os.getenv("LAKEBASE_PORT", str(parsed["port"])))
         database = database or str(parsed["database"])
 
     database = database or "agent_memory"
 
+    # When no explicit user override is set, derive from the authenticated token
+    # identity so the Postgres role always matches the OAuth bearer (required for SP).
+    # _resolve_lakebase_user is cached at module level to avoid a per-connection HTTP probe.
+    if not user:
+        user = _resolve_lakebase_user(cfg)
+
     if not host or not user:
         raise RuntimeError(
-            "Lakebase OAuth refresh needs LAKEBASE_URL or LAKEBASE_HOST + LAKEBASE_USER."
+            "Lakebase OAuth refresh needs LAKEBASE_HOST and (LAKEBASE_USER or workspace auth)."
         )
     return _build_conninfo(host, port, database, user, token)
 
@@ -131,16 +132,24 @@ def _conninfo_from_template(
 def _lakebase_credential_endpoint() -> str | None:
     explicit = (os.getenv("LAKEBASE_CREDENTIAL_ENDPOINT") or "").strip()
     if explicit:
-        return explicit
+        # Accept both full endpoint path and bare project/branch path.
+        if "/endpoints/" in explicit:
+            return explicit
+        # Treat as branch path — append default endpoint.
+        compute = (os.getenv("LAKEBASE_COMPUTE") or "primary").strip()
+        return f"{explicit.rstrip('/')}/endpoints/{compute}"
     project = (os.getenv("LAKEBASE_PROJECT") or "").strip()
     if not project:
         return None
     slug = project.strip("/")
+    # Normalise: strip a leading "projects/" prefix so slug is just the project ID.
     if slug.startswith("projects/"):
-        return slug
+        slug = slug[len("projects/"):]
     branch = (os.getenv("LAKEBASE_BRANCH") or "production").strip()
+    # LAKEBASE_BRANCH may be a full path like "projects/foo/branches/bar".
+    branch_slug = branch.rstrip("/").split("/")[-1] if "/" in branch else branch
     compute = (os.getenv("LAKEBASE_COMPUTE") or "primary").strip()
-    return f"projects/{slug}/branches/{branch}/endpoints/{compute}"
+    return f"projects/{slug}/branches/{branch_slug}/endpoints/{compute}"
 
 
 def _lakebase_instance_name() -> str | None:
@@ -152,19 +161,18 @@ def lakebase_conninfo(settings: Settings | None = None) -> str:
     load_local_env()
     cfg = settings or Settings.from_env()
     static = cfg.lakebase_conninfo
-    profile = _databricks_profile(cfg)
     endpoint = _lakebase_credential_endpoint()
     instance = _lakebase_instance_name()
 
     if static and instance and not endpoint:
         try:
-            token = _lakebase_oauth_token_provisioned(instance, profile)
+            token = _lakebase_oauth_token_provisioned(instance, cfg)
             return _conninfo_from_template(cfg, token, static_uri=static)
         except RuntimeError:
             pass
 
     if static and endpoint:
-        token = _lakebase_oauth_token_autoscale(endpoint, profile)
+        token = _lakebase_oauth_token_autoscale(endpoint, cfg)
         return _conninfo_from_template(cfg, token, static_uri=static)
 
     if static:
@@ -192,7 +200,7 @@ def lakebase_connection(
     settings: Settings | None = None,
     *,
     register_pgvector: bool = True,
-) -> Iterator[psycopg.Connection]:
+) -> Generator[psycopg.Connection, None, None]:
     """Open a Lakebase connection; register pgvector types when the extension exists."""
     import psycopg
 

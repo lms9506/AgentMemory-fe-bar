@@ -51,6 +51,8 @@ def test_lakebase_conninfo_autoscale_refresh(monkeypatch):
         uc_schema="s",
         lakebase_database=None,
         lakebase_conninfo="postgresql://user@host.example.com/mydb?sslmode=require",
+        databricks_client_id=None,
+        databricks_client_secret=None,
     )
 
     with patch("agent_memory.memory.connection.load_local_env"), patch(
@@ -80,6 +82,8 @@ def test_lakebase_conninfo_provisioned_refresh(monkeypatch):
         uc_schema="s",
         lakebase_database="agent_memory",
         lakebase_conninfo="postgresql://u@h.example.com/databricks_postgres",
+        databricks_client_id=None,
+        databricks_client_secret=None,
     )
 
     with patch("agent_memory.memory.connection.load_local_env"), patch(

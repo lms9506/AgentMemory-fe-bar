@@ -1,24 +1,24 @@
-"""LangGraph nodes for the wealth advisor agent."""
+"""LangGraph nodes for the wealth advisor query agent."""
 
 from __future__ import annotations
-
-from dataclasses import asdict
-from datetime import datetime
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from agent_memory.agents.prompts import WEALTH_ADVISOR_SYSTEM
 from agent_memory.agents.state import AdvisorAgentState
-from agent_memory.memory.store import MemoryStore
+from agent_memory.memory.store import ArtifactStore
 
 
-def _format_retrieved(turns: list[dict]) -> str:
-    if not turns:
+def _format_retrieved(chunks: list[dict]) -> str:
+    if not chunks:
         return ""
-    lines = ["Relevant prior conversation for this client:"]
-    for t in turns:
-        lines.append(f"- [{t['role']}, score={t['score']:.2f}] {t['content']}")
+    lines = ["Relevant passages from the client dossier:"]
+    for c in chunks:
+        score = c.get("score", 0.0)
+        content = c.get("content", "")
+        artifact_id = c.get("artifact_id", "")
+        lines.append(f"- [artifact={artifact_id}, score={score:.2f}] {content}")
     return "\n".join(lines)
 
 
@@ -30,17 +30,21 @@ def _last_user_text(messages: list) -> str:
     return ""
 
 
-def make_retrieve_node(store: MemoryStore):
+def make_retrieve_node(store: ArtifactStore):
     def retrieve(state: AdvisorAgentState) -> dict:
         query = _last_user_text(state["messages"])
         if not query:
-            return {"retrieved_turns": []}
-        hits = store.retrieve_similar(client_id=state["client_id"], query=query, top_k=5)
+            return {"retrieved_chunks": []}
+        hits = store.retrieve_chunks(client_id=state["client_id"], query=query, top_k=5)
         return {
-            "retrieved_turns": [
+            "retrieved_chunks": [
                 {
-                    **asdict(h),
-                    "ts": h.ts.isoformat() if isinstance(h.ts, datetime) else h.ts,
+                    "chunk_id": h.chunk_id,
+                    "artifact_id": h.artifact_id,
+                    "chunk_index": h.chunk_index,
+                    "content": h.content,
+                    "score": h.score,
+                    "created_at": h.created_at.isoformat() if h.created_at else None,
                 }
                 for h in hits
             ]
@@ -49,13 +53,26 @@ def make_retrieve_node(store: MemoryStore):
     return retrieve
 
 
+def build_generation_messages(
+    *,
+    user_message: str,
+    retrieved_chunks: list[dict] | None = None,
+) -> list[SystemMessage | HumanMessage]:
+    """Messages for FM API generate/stream (retrieve already applied)."""
+    system = WEALTH_ADVISOR_SYSTEM
+    retrieved = _format_retrieved(retrieved_chunks or [])
+    if retrieved:
+        system = f"{system}\n\n{retrieved}"
+    return [SystemMessage(content=system), HumanMessage(content=user_message)]
+
+
 def make_generate_node(model: BaseChatModel):
     def generate(state: AdvisorAgentState) -> dict:
-        system = WEALTH_ADVISOR_SYSTEM
-        retrieved = _format_retrieved(state.get("retrieved_turns") or [])
-        if retrieved:
-            system = f"{system}\n\n{retrieved}"
-        messages = [SystemMessage(content=system), *state["messages"]]
+        user_text = _last_user_text(state["messages"])
+        messages = build_generation_messages(
+            user_message=user_text,
+            retrieved_chunks=state.get("retrieved_chunks"),
+        )
         result = model.invoke(messages)
         text = result.content if isinstance(result.content, str) else str(result.content)
         return {
@@ -64,37 +81,3 @@ def make_generate_node(model: BaseChatModel):
         }
 
     return generate
-
-
-def make_write_memory_node(store: MemoryStore):
-    def write_memory(state: AdvisorAgentState) -> dict:
-        session_id = state["session_id"]
-        user_text = _last_user_text(state["messages"])
-        assistant_text = state.get("response") or ""
-        agent_run_id = state.get("agent_run_id")
-
-        if user_text:
-            idx = store.next_turn_index(session_id)
-            store.append_turn(
-                client_id=state["client_id"],
-                advisor_id=state["advisor_id"],
-                session_id=session_id,
-                turn_index=idx,
-                role="user",
-                content=user_text,
-                agent_run_id=agent_run_id,
-            )
-        if assistant_text:
-            idx = store.next_turn_index(session_id)
-            store.append_turn(
-                client_id=state["client_id"],
-                advisor_id=state["advisor_id"],
-                session_id=session_id,
-                turn_index=idx,
-                role="assistant",
-                content=assistant_text,
-                agent_run_id=agent_run_id,
-            )
-        return {}
-
-    return write_memory

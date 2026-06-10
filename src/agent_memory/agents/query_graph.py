@@ -1,4 +1,4 @@
-"""LangGraph definition for the wealth advisor agent."""
+"""LangGraph definition for the wealth advisor query/brainstorm agent."""
 
 from __future__ import annotations
 
@@ -8,34 +8,31 @@ from langgraph.graph import END, START, StateGraph
 from agent_memory.agents.nodes import (
     make_generate_node,
     make_retrieve_node,
-    make_write_memory_node,
 )
 from agent_memory.agents.state import AdvisorAgentState
-from agent_memory.memory.store import InMemoryMemoryStore, LakebaseMemoryStore, MemoryStore
+from agent_memory.memory.store import ArtifactStore, InMemoryArtifactStore, LakebaseArtifactStore
 
 
-def build_graph(
+def build_query_graph(
     model: BaseChatModel,
-    memory_store: MemoryStore | None = None,
+    artifact_store: ArtifactStore | None = None,
     *,
     with_memory: bool = True,
 ):
-    """Compile the advisor agent graph.
+    """Compile the advisor query graph.
 
-    When `with_memory` is True, uses Lakebase unless a store is injected (tests).
-    Flow: retrieve → generate → write_memory.
+    Query surface never writes artifacts — it only retrieves and generates.
+    Flow: retrieve → generate → END.
     """
     builder = StateGraph(AdvisorAgentState)
-    store = memory_store or (LakebaseMemoryStore() if with_memory else None)
+    store = artifact_store or (LakebaseArtifactStore() if with_memory else None)
 
     if store is not None:
         builder.add_node("retrieve", make_retrieve_node(store))
         builder.add_node("generate", make_generate_node(model))
-        builder.add_node("write_memory", make_write_memory_node(store))
         builder.add_edge(START, "retrieve")
         builder.add_edge("retrieve", "generate")
-        builder.add_edge("generate", "write_memory")
-        builder.add_edge("write_memory", END)
+        builder.add_edge("generate", END)
     else:
         builder.add_node("generate", make_generate_node(model))
         builder.add_edge(START, "generate")
@@ -48,15 +45,15 @@ def build_default_graph(*, with_memory: bool = True):
     """Graph using FM API credentials from the environment."""
     from agent_memory.agents.llm import build_chat_model
 
-    return build_graph(build_chat_model(), with_memory=with_memory)
+    return build_query_graph(build_chat_model(), with_memory=with_memory)
 
 
 def build_test_graph(model: BaseChatModel | None = None):
-    """In-memory memory + injectable fake LLM for unit tests."""
+    """In-memory store + injectable fake LLM for unit tests."""
     from agent_memory.agents.llm import build_chat_model_for_tests
 
-    return build_graph(
+    return build_query_graph(
         model or build_chat_model_for_tests(),
-        memory_store=InMemoryMemoryStore(),
+        artifact_store=InMemoryArtifactStore(),
         with_memory=True,
     )

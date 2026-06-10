@@ -1,0 +1,22 @@
+.venv/
+venv/
+.git/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.databricks/
+*.egg-info/
+/build/
+# uv wheel output at repo root (not part of the App bundle)
+/dist/
+mlruns/
+mlartifacts/
+mlflow.db
+.env
+.env.local
+node_modules/
+src/agent_memory/ui/frontend/node_modules/
+tests/
+notebooks/
+data/synthetic/output/
