@@ -16,6 +16,8 @@ build/
 venv/
 .env
 .env.local
+# Generated from .env by scripts/deploy_bundle.sh (workspace-synced notebook config).
+.env.shared
 
 # uv
 .python-version

@@ -29,28 +29,50 @@ AgentMemory/
 │   ├── progress.md         ← Status, milestones, open tasks
 │   ├── conventions.md      ← Code, commit, branching conventions
 │   └── glossary.md         ← Memory taxonomy + domain terms
+├── databricks.yml          ← DABs bundle (provisions Lakebase + warehouse + App + jobs)
+├── .env.example            ← copy to .env; the single config source
 ├── src/agent_memory/       ← Python package: agents, memory, tools, UI
-├── databricks/             ← databricks.yml (DABs), app.yaml, Lakebase + Delta schema
+├── databricks/             ← Lakebase + Delta schema SQL
 ├── notebooks/              ← Setup + demo notebooks (the non-expert deploy path)
 ├── tests/                  ← pytest suite
 ├── data/synthetic/         ← Synthetic client + dossier-artifact generators
 └── .mcp.json               ← Databricks MCP server config
 ```
 
-## Deploy it (no deep platform expertise required)
+## Deploy it on a fresh workspace
 
-The intended path is **DABs + the setup notebooks**:
+The bundle **provisions its own infrastructure** — the Lakebase instance and the SQL
+warehouse are created by `bundle deploy`, not prerequisites you stand up first. The
+only thing you configure by hand is a catalog and which CLI profile to use.
 
-1. **Configure** — `cp .env.shared .env` and set your workspace values (catalog, schema, profile — comments in `.env.shared` explain each).
-2. **Authenticate** — `databricks auth login --profile <your-profile>`.
-3. **Deploy infra + app** — from the repo root:
+**Prerequisites:** the `databricks` CLI (≥ 0.295.1), [`uv`](https://docs.astral.sh/uv/),
+and Node/npm (to build the React UI). A Unity Catalog **catalog** you can create a
+schema in, and the Foundation Model endpoints `databricks-meta-llama-3-3-70b-instruct`
++ `databricks-gte-large-en` available in your workspace (default in most regions).
+
+1. **Authenticate** — `databricks auth login --profile <your-profile>`.
+2. **Configure (one file)** — `cp .env.example .env`, then set `DATABRICKS_PROFILE`
+   and `UC_CATALOG` (everything else has sane defaults). This is the single source of
+   truth; the deploy script feeds it into the bundle and writes the provisioned ids
+   back into it.
+3. **Deploy** — from the repo root:
    ```bash
-   databricks bundle deploy --target dev
+   ./scripts/deploy_bundle.sh dev
    ```
-4. **Provision + seed** — open the `notebooks/` in order (`00_setup_*` → `01_*_synthetic_*` → `99_demo_*`). They create the Lakebase schema, the UC Volume, the Delta profile table, and load synthetic clients + dossier artifacts.
-5. **Open the app** — the Databricks App URL from the deploy output.
+   This builds the UI + wheel, deploys the bundle (Lakebase instance, SQL warehouse,
+   the App, and the nightly jobs), and applies the service-principal grants.
+4. **Set up + seed** — open the `notebooks/` in order and **Run all**:
+   `00_setup` (Lakebase schema, UC Volume, Delta table, SP grants) → `01_seed` (three
+   demo client dossiers, mixed formats, backdated history) → `02_demo` (walks the four
+   UI panels). They derive everything from their own location — nothing to edit.
+5. **Open the app** — the URL printed at the end of the deploy.
 
-> **Status:** the docs above describe the **target dossier design**. The implementation is mid-pivot from the v1 turn/session model (milestones M1–M9) to the dossier model — see `docs/progress.md` for exactly what's built vs. pending. Setup commands and notebook names settle as the rewrite lands.
+> **Note:** deploying to a target creates a Lakebase instance named
+> `agent-memory-<target>`. Switching an existing deployment to this bundle means the
+> new instance starts empty — re-run `00_setup` + `01_seed` to reseed.
+
+See `docs/progress.md` for current build status and `docs/decisions.md` (ADR-0016) for
+why the infra is bundle-provisioned.
 
 ### Local development
 

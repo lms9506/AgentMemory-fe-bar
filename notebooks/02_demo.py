@@ -45,6 +45,14 @@ from dotenv import load_dotenv
 
 load_dotenv(f"{REPO_ROOT}/.env.shared", override=False)
 
+# Point at the bundle-provisioned Lakebase instance (agent-memory-<target>); look up
+# its Postgres endpoint via the SDK (matches 00_setup/01_seed — no host hardcoded).
+LAKEBASE_INSTANCE = f"agent-memory-{TARGET}"
+_instance = WorkspaceClient().database.get_database_instance(name=LAKEBASE_INSTANCE)
+os.environ["LAKEBASE_INSTANCE_NAME"] = LAKEBASE_INSTANCE
+os.environ["LAKEBASE_URL"] = f"postgresql://{_instance.read_write_dns}/databricks_postgres?sslmode=require"
+os.environ["LAKEBASE_DATABASE"] = "databricks_postgres"
+
 from agent_memory.config import Settings, ensure_databricks_auth
 
 settings = Settings.from_env()

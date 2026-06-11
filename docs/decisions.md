@@ -156,6 +156,20 @@ Architectural Decision Records for the **current** design. This log was rewritte
 
 ---
 
+## ADR-0016 — Bundle-provisioned infrastructure + single-source config (NFR-2)
+
+**Date:** 2026-06-10 · **Status:** Accepted
+
+**Context.** Getting started on a *new* workspace required ~2 manual provisioning steps (create a Lakebase instance, create a SQL warehouse) and editing the same workspace values across three files (`databricks.yml`, `app.yaml`, `.env.shared`), with FEVM-specific literals (host, profile, warehouse id, the `ep-odd-term…` Lakebase URL) hardcoded throughout. That undercuts NFR-2 ("deployable by a non-expert").
+
+**Decision.** (1) **Provision in the bundle** — add `resources.database_instances.lakebase` (`agent-memory-${target}`) and `resources.sql_warehouses.warehouse`; the app + jobs reference them via `${resources.database_instances.lakebase.read_write_dns}` / `${resources.sql_warehouses.warehouse.id}`. No pre-existing infra, no ids to copy. (2) **Single config source = `.env`** — the user sets `DATABRICKS_PROFILE` + `UC_CATALOG` (rest defaulted); `deploy_bundle.sh` feeds them to the bundle as `BUNDLE_VAR_*`, generates the workspace-synced `.env.shared` notebooks read, and writes the resolved warehouse id + Lakebase endpoint back into `.env`. (3) **App env moved into the bundle** — the hand-maintained root `app.yaml` is deleted; the app's env is the bundle app resource's inline `config.env`, templated from `${var}`/`${resources}`. (4) **App↔Lakebase binding** gives the app SP a Postgres role; the app mints OAuth tokens at runtime via the existing provisioned-instance path (`LAKEBASE_INSTANCE_NAME`). Notebooks derive the instance name from their target and look the host up via the SDK. Lakebase table grants moved from a `psql` block in the deploy script into `00_setup` (removes the local `psql` prerequisite).
+
+**Why.** `bundle deploy` already builds a dependency graph, so `${resources…}` references resolve in-deploy — the Databricks-native way to wire an app to infra it creates. Keeping `.env` as the one input and propagating it (BUNDLE_VAR → bundle; generated `.env.shared` → notebooks; write-back → local) removes the three-file triplication without asking any consumer to read a file it can't reach. Inline app `config.env` was chosen over a rendered `app.yaml` because it lets the app env reference created resources directly (a static `app.yaml` can't). Alternatives rejected: keep manual provisioning + documented prereqs (fails the "non-expert" bar); a `variable-overrides.json` input (less familiar than `.env`).
+
+**Consequences.** Deploying a target creates a Lakebase instance + warehouse; switching an existing deployment to this bundle starts with an empty instance → re-run `00_setup` + `01_seed`. Two runtime behaviors are confirmed only on a live deploy: that `apps deploy` honors the inline `config.env`, and that `read_write_dns` populates via `${resources…}` (deploy script has a `get-database-instance` fallback for the latter). `.env.shared` is now generated (gitignored); `.env.example` is the committed template. Job entry points gained `--lakebase-instance-name`.
+
+---
+
 ## ADR template (copy when adding a new one)
 
 ```

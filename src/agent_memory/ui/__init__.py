@@ -1,1 +1,1 @@
-"""Databricks App backend. Run via `databricks bundle deploy` (see repo-root app.yaml)."""
+"""Databricks App backend. Run via `databricks bundle deploy` (app config lives in databricks.yml)."""

@@ -50,10 +50,24 @@ TARGET = os.path.basename(os.path.dirname(REPO_ROOT))  # .../agent-memory/<targe
 APP_NAME = f"wealth-advisor-{TARGET}"  # bundle app resource (wealth-advisor-${bundle.target})
 print(f"REPO_ROOT={REPO_ROOT}  TARGET={TARGET}  APP_NAME={APP_NAME}")
 
-# Load team config (UC_CATALOG / UC_SCHEMA / LAKEBASE_*) from the synced .env.shared.
+# Load catalog/schema (+ FM endpoints) from the synced .env.shared (generated from
+# your .env by scripts/deploy_bundle.sh — single source of truth).
 from dotenv import load_dotenv
 
 load_dotenv(f"{REPO_ROOT}/.env.shared", override=False)
+
+# The Lakebase instance is PROVISIONED by the bundle as `agent-memory-<target>`.
+# Derive its name and look up the Postgres endpoint via the SDK, then expose them
+# the way the connection layer expects (provisioned-instance OAuth path) — no host
+# is hardcoded anywhere.
+from databricks.sdk import WorkspaceClient
+
+LAKEBASE_INSTANCE = f"agent-memory-{TARGET}"
+_instance = WorkspaceClient().database.get_database_instance(name=LAKEBASE_INSTANCE)
+os.environ["LAKEBASE_INSTANCE_NAME"] = LAKEBASE_INSTANCE
+os.environ["LAKEBASE_URL"] = f"postgresql://{_instance.read_write_dns}/databricks_postgres?sslmode=require"
+os.environ["LAKEBASE_DATABASE"] = "databricks_postgres"
+print(f"Lakebase instance={LAKEBASE_INSTANCE}  host={_instance.read_write_dns}")
 
 from agent_memory.config import Settings, ensure_databricks_auth
 
@@ -104,6 +118,34 @@ with lakebase_connection(settings, register_pgvector=False) as conn, conn.cursor
         cur.execute(statement)
     conn.commit()
 print(f"Applied {len(statements)} Lakebase statements (artifacts, artifact_chunks, audit_log, profile_proposals, clients).")
+
+# COMMAND ----------
+
+# 3b. Grant the app service principal access to the Lakebase tables. The app binding
+#     gives the SP a Postgres role + CONNECT/CREATE, but the tables above are owned by
+#     you (this notebook), so the SP needs explicit table grants. ALL TABLES + ALTER
+#     DEFAULT PRIVILEGES keeps this correct across future schema migrations.
+import re
+
+if "app_sp" in dir() and app_sp and re.fullmatch(r"[0-9a-fA-F-]{36}", app_sp):
+    role = f'"{app_sp}"'  # the SP's Postgres role is its client id (UUID)
+    grant_sql = [
+        f"GRANT USAGE ON SCHEMA public TO {role}",
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
+        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}",
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {role}",
+    ]
+    try:
+        with lakebase_connection(settings, register_pgvector=False) as conn, conn.cursor() as cur:
+            for stmt in grant_sql:
+                cur.execute(stmt)
+            conn.commit()
+        print(f"Granted Lakebase table access to app SP {app_sp}.")
+    except Exception as exc:  # noqa: BLE001 — SP role may not exist yet; surface + continue
+        print(f"Lakebase SP grant skipped ({exc!r}). Re-run after the app's first deploy.")
+else:
+    print("App SP id unavailable — skipping Lakebase SP grant (re-run cell 2 first).")
 
 # COMMAND ----------
 
