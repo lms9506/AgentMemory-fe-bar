@@ -25,7 +25,15 @@ REGISTRY="${REGISTRY:-https://npm-proxy.cloud.databricks.com/}"
 export NPM_CONFIG_REGISTRY="$REGISTRY"
 
 if ! curl -fsS --max-time 15 "${REGISTRY}vite" >/dev/null 2>&1; then
-  echo "ERROR: Cannot reach npm registry at ${REGISTRY}" >&2
+  # Registry unreachable (e.g. off the Databricks network). If a pre-built UI is
+  # shipped, use it rather than failing the whole deploy — the accelerator is
+  # designed to deploy with the shipped dist/ and no Node toolchain.
+  if [[ -f "$FRONTEND/dist/index.html" ]]; then
+    echo "WARNING: Cannot reach npm registry at ${REGISTRY} — using pre-built UI in frontend/dist/." >&2
+    echo "  (To rebuild the UI, connect to the Databricks network or set NPM_CONFIG_REGISTRY.)" >&2
+    exit 0
+  fi
+  echo "ERROR: Cannot reach npm registry at ${REGISTRY} and no pre-built UI in frontend/dist/." >&2
   echo "  For Databricks: npm config set registry https://npm-proxy.cloud.databricks.com/" >&2
   exit 1
 fi

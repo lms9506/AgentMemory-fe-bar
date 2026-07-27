@@ -12,6 +12,7 @@ from agent_memory.config import (
     _token_from_workspace_client,
     ensure_databricks_auth,
     get_workspace_client,
+    set_mlflow_experiment,
 )
 from agent_memory.memory.distillation import run_distillation
 
@@ -85,8 +86,7 @@ def main() -> None:
             "Use --dry-run only for LLM parse tests with injected sources in unit tests."
         )
 
-    if settings.mlflow_experiment_name:
-        mlflow.set_experiment(settings.mlflow_experiment_name)
+    set_mlflow_experiment(settings)
 
     proposal_store = None
     if args.hitl and not args.dry_run:

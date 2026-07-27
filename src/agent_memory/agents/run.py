@@ -10,7 +10,7 @@ from langchain_core.messages import HumanMessage
 
 from agent_memory.agents.query_graph import build_default_graph
 from agent_memory.agents.state import AdvisorAgentState
-from agent_memory.config import Settings, ensure_databricks_auth
+from agent_memory.config import Settings, ensure_databricks_auth, set_mlflow_experiment
 
 
 def run_turn_with_state(
@@ -44,8 +44,7 @@ def run_turn_with_state(
         "agent_run_id": None,
     }
 
-    if cfg.mlflow_experiment_name:
-        mlflow.set_experiment(cfg.mlflow_experiment_name)
+    set_mlflow_experiment(cfg)
 
     with mlflow.start_run(run_name="advisor_turn"):
         active = mlflow.active_run()

@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
 from agent_memory.agents.state import IngestGraphState
-from agent_memory.config import Settings, ensure_databricks_auth
+from agent_memory.config import Settings, ensure_databricks_auth, set_mlflow_experiment
 
 # Module-level imports so tests can patch these names with mock.patch.
 # WorkspaceClient construction is deferred to call time (inside node closures)
@@ -276,8 +276,7 @@ def run_ingest_graph(
         yield {"type": "error", "message": f"Databricks auth failed. {cfg.auth_diagnostics()}"}
         return
 
-    if cfg.mlflow_experiment_name:
-        mlflow.set_experiment(cfg.mlflow_experiment_name)
+    set_mlflow_experiment(cfg)
 
     initial: IngestGraphState = {
         "client_id": client_id,

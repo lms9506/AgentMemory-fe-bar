@@ -81,9 +81,14 @@ print(f"catalog={CATALOG}  schema={SCHEMA}  volume={VOLUME_NAME}")
 
 # COMMAND ----------
 
-# 1. UC Volume for raw artifact bytes (idempotent — the bundle may have created it already).
+# 1. UC schema + Volume for raw artifact bytes (idempotent). The schema is created
+#    here (not as a bundle resource) so its name stays the literal UC_SCHEMA that the
+#    app, jobs, and this notebook all share — dev-mode name prefixing would otherwise
+#    rename a bundle-managed schema to dev_<user>_<schema>. Needs CREATE SCHEMA on the
+#    catalog (the deploying user has it; the catalog itself must already exist).
+spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`")
 spark.sql(f"CREATE VOLUME IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`.`{VOLUME_NAME}`")
-print(f"Volume ready: /Volumes/{CATALOG}/{SCHEMA}/{VOLUME_NAME}")
+print(f"Schema + Volume ready: /Volumes/{CATALOG}/{SCHEMA}/{VOLUME_NAME}")
 
 # COMMAND ----------
 

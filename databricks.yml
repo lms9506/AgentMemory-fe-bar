@@ -1,10 +1,18 @@
 bundle:
   name: agent-memory
 
-# Vite output is gitignored; must be built before deploy (see scripts/deploy_bundle.sh).
+# These are gitignored (built/generated), so they must be explicitly synced to the
+# workspace or the App + setup notebooks won't see them:
+#  - frontend/dist/**  — the pre-built Vite UI (see scripts/deploy_bundle.sh)
+#  - .env.shared       — generated notebook config (UC_CATALOG/UC_SCHEMA/FM endpoints)
+#  - app.yaml          — generated Databricks Apps runtime config (command + env). It's
+#                        gitignored + regenerated each deploy, so it MUST be listed here
+#                        or `bundle deploy` skips it and the App comes up with no command.
 sync:
   include:
     - src/agent_memory/ui/frontend/dist/**
+    - .env.shared
+    - app.yaml
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
 # Almost nothing is workspace-specific. Set your catalog/schema once in .env
@@ -74,13 +82,13 @@ resources:
       auto_stop_mins: 10
       max_num_clusters: 1
 
-  volumes:
-    dossier_raw_volume:
-      catalog_name: ${var.catalog}
-      schema_name: ${var.schema}
-      name: ${var.volume_name}
-      volume_type: MANAGED
-      # App SP gets READ+WRITE VOLUME in 00_setup.py (looked up from the deployed app).
+  # NOTE: the UC schema + Volume are NOT bundle resources. In development mode the
+  # bundle prefixes resource names (dev_<user>_…), which would rename the schema to
+  # dev_<user>_wealth_advisor while the app env, jobs, and the notebooks' .env.shared
+  # all reference the literal ${var.schema}. To keep one stable schema name across
+  # every consumer, 00_setup.py creates the schema + Volume (CREATE … IF NOT EXISTS)
+  # using UC_CATALOG/UC_SCHEMA from .env.shared. The catalog must already exist and
+  # you need CREATE SCHEMA on it.
 
   jobs:
     distillation_nightly:

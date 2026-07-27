@@ -14,7 +14,7 @@ from agent_memory.agents.nodes import (
     make_retrieve_node,
 )
 from agent_memory.agents.state import AdvisorAgentState
-from agent_memory.config import Settings, ensure_databricks_auth
+from agent_memory.config import Settings, ensure_databricks_auth, set_mlflow_experiment
 from agent_memory.memory.store import LakebaseArtifactStore
 
 
@@ -64,8 +64,7 @@ def stream_advisor_events(
         "agent_run_id": None,
     }
 
-    if cfg.mlflow_experiment_name:
-        mlflow.set_experiment(cfg.mlflow_experiment_name)
+    set_mlflow_experiment(cfg)
 
     try:
         with mlflow.start_run(run_name="advisor_turn_stream"):

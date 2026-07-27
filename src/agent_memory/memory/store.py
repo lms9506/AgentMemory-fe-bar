@@ -7,7 +7,13 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Protocol
 
-from pgvector.psycopg import Vector
+# `Vector` moved between pgvector releases: older versions expose it at
+# `pgvector.psycopg`, newer ones (e.g. the Databricks Serverless build) only at the
+# top-level `pgvector`. Import from whichever this environment provides.
+try:
+    from pgvector.psycopg import Vector
+except ImportError:  # pragma: no cover - version-dependent import path
+    from pgvector import Vector
 
 from agent_memory.memory.connection import lakebase_connection
 from agent_memory.memory.embeddings import embed_texts

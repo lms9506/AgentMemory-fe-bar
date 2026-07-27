@@ -65,6 +65,7 @@ def main() -> None:
         _token_from_workspace_client,
         ensure_databricks_auth,
         get_workspace_client,
+        set_mlflow_experiment,
     )
     from agent_memory.eval.response import ResponseCase, run_response_eval
     from agent_memory.eval.retrieval import RetrievalCase, run_retrieval_eval
@@ -84,8 +85,7 @@ def main() -> None:
         except Exception as err:
             raise SystemExit(f"Databricks auth failed. {settings.auth_diagnostics()}") from err
 
-    if settings.mlflow_experiment_name:
-        mlflow.set_experiment(settings.mlflow_experiment_name)
+    set_mlflow_experiment(settings)
 
     eval_data = _load_eval_cases()
     retrieval_cases = [

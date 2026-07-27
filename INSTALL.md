@@ -50,24 +50,28 @@ provisioned Lakebase + warehouse ids back into `.env` when it finishes.
 > upgrade the CLI (`brew upgrade databricks`), or run with a local Terraform:
 > `export DATABRICKS_TF_EXEC_PATH="$(which terraform)" DATABRICKS_TF_VERSION=1.5.5`.
 
-## 4. Set up + seed (in the workspace)
+## 4. Open the app
 
-The deploy syncs three notebooks to your workspace under
-`/Workspace/Users/<you>/.bundle/agent-memory/dev/files/notebooks/`. Open each in order,
-attach **Serverless**, and click **Run all**:
+The deploy runs **`00_setup` for you automatically** (creates the Lakebase schema +
+tables, the UC Volume, the Delta profile table, and grants the app's service principal
+access), so the app is ready to use as soon as the script finishes. It prints the App
+URL at the end (or find it under Databricks → *Compute* → *Apps* → `wealth-advisor-dev`).
+It's workspace-authenticated (advisor-internal, not public).
 
-1. **`00_setup`** — creates the Lakebase schema, the UC Volume, the Delta profile table,
-   and grants the app's service principal access.
-2. **`01_seed`** — loads three demo client dossiers (mixed formats — handwritten, PDF,
+> Re-deploying an already-initialized workspace? Skip the setup step with
+> `SKIP_SETUP=1 ./scripts/deploy_bundle.sh dev`.
+
+## 5. (Optional) Load the demo dossiers
+
+To explore with sample data, the deploy syncs two more notebooks to your workspace under
+`/Workspace/Users/<you>/.bundle/agent-memory/dev/files/notebooks/`. Open each, attach
+**Serverless**, and click **Run all**:
+
+1. **`01_seed`** — loads three demo client dossiers (mixed formats — handwritten, PDF,
    scanned, typed — backdated over ~8 months).
-3. **`02_demo`** — walks the four UI panels end-to-end.
+2. **`02_demo`** — walks the four UI panels end-to-end.
 
 The notebooks figure out everything from their own location — nothing to edit.
-
-## 5. Open the app
-
-The deploy prints the App URL at the end (or: Databricks → *Compute* → *Apps* →
-`wealth-advisor-dev`). It's workspace-authenticated (advisor-internal, not public).
 
 ---
 
