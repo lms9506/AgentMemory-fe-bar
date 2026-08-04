@@ -8,7 +8,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install ..
+# MAGIC %pip install /Workspace/Users/linus.meister@databricks.com/.bundle/agent-memory/dev/files
 
 # COMMAND ----------
 
@@ -21,37 +21,16 @@ except Exception:
 
 # COMMAND ----------
 
-import os
-
-# Repo root + target derived from this notebook's own workspace path (no hardcoded
-# user/target); the live app URL is looked up from the deployed app via the SDK.
-_nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-REPO_ROOT = "/Workspace" + os.path.dirname(os.path.dirname(_nb_path))
-TARGET = os.path.basename(os.path.dirname(REPO_ROOT))
+REPO_ROOT = "/Workspace/Users/linus.meister@databricks.com/.bundle/agent-memory/dev/files"
 
 # The client/advisor to demo (client_0000 is the first synthetic client from 01_seed).
 CLIENT_ID = "client_0000"
 ADVISOR_ID = "advisor_demo_01"
-
-from databricks.sdk import WorkspaceClient
-
-try:
-    APP_URL = WorkspaceClient().apps.get(f"wealth-advisor-{TARGET}").url.rstrip("/") + "/api"
-except Exception as exc:  # noqa: BLE001 — URL is for display only; fall back to a placeholder
-    APP_URL = "<your-app-url>/api"
-    print(f"App URL lookup skipped ({exc!r}); printed API paths show a placeholder.")
+APP_URL = "https://smart-advise-dev-7474655538721943.aws.databricksapps.com/api"
 
 from dotenv import load_dotenv
 
 load_dotenv(f"{REPO_ROOT}/.env.shared", override=False)
-
-# Point at the bundle-provisioned Lakebase instance (agent-memory-<target>); look up
-# its Postgres endpoint via the SDK (matches 00_setup/01_seed — no host hardcoded).
-LAKEBASE_INSTANCE = f"agent-memory-{TARGET}"
-_instance = WorkspaceClient().database.get_database_instance(name=LAKEBASE_INSTANCE)
-os.environ["LAKEBASE_INSTANCE_NAME"] = LAKEBASE_INSTANCE
-os.environ["LAKEBASE_URL"] = f"postgresql://{_instance.read_write_dns}/databricks_postgres?sslmode=require"
-os.environ["LAKEBASE_DATABASE"] = "databricks_postgres"
 
 from agent_memory.config import Settings, ensure_databricks_auth
 

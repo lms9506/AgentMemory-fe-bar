@@ -17,15 +17,14 @@
 # MAGIC > is synthetic/reference (ADR-0004), but this is the point of no return.
 # MAGIC
 # MAGIC Config is read from the bundle-synced `.env.shared` (`UC_CATALOG`, `UC_SCHEMA`,
-# MAGIC `LAKEBASE_*`) — no workspace values are hardcoded. The bundle sync path is derived
-# MAGIC automatically from this notebook's own location, so there is **nothing to edit**:
-# MAGIC clone, `databricks bundle deploy --target <target>`, then **Run all**. (The
-# MAGIC `%pip install ..` below installs the package from the repo root — a bundle-synced
-# MAGIC notebook's working directory is its own folder, so `..` is the repo root.)
+# MAGIC `LAKEBASE_*`) — no workspace values are hardcoded. The only thing you may need to
+# MAGIC edit is the bundle sync path (in the `%pip install` cell **and** the `REPO_ROOT`
+# MAGIC constant) if your user/target differ from `linus.meister@databricks.com` / `dev`:
+# MAGIC `/Workspace/Users/<you>/.bundle/agent-memory/<target>/files`.
 
 # COMMAND ----------
 
-# MAGIC %pip install ..
+# MAGIC %pip install /Workspace/Users/linus.meister@databricks.com/.bundle/agent-memory/dev/files
 
 # COMMAND ----------
 
@@ -38,36 +37,15 @@ except Exception:
 
 # COMMAND ----------
 
-# Bundle-synced repo root + app name, derived from this notebook's own workspace path
-# (no hardcoded user/target). The notebook lives at <REPO_ROOT>/notebooks/<name> under
-# /Workspace/Users/<user>/.bundle/agent-memory/<target>/files, so REPO_ROOT is two
-# levels up and <target> is the directory above it. Used to read .env.shared + the .sql.
-import os
+# Bundle-synced repo root (same path as the %pip install above). Used to read
+# .env.shared and the .sql schema files.
+REPO_ROOT = "/Workspace/Users/linus.meister@databricks.com/.bundle/agent-memory/dev/files"
+APP_NAME = "smart-advise-dev"  # bundle app resource; edit if your target differs
 
-_nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-REPO_ROOT = "/Workspace" + os.path.dirname(os.path.dirname(_nb_path))
-TARGET = os.path.basename(os.path.dirname(REPO_ROOT))  # .../agent-memory/<target>/files
-APP_NAME = f"wealth-advisor-{TARGET}"  # bundle app resource (wealth-advisor-${bundle.target})
-print(f"REPO_ROOT={REPO_ROOT}  TARGET={TARGET}  APP_NAME={APP_NAME}")
-
-# Load catalog/schema (+ FM endpoints) from the synced .env.shared (generated from
-# your .env by scripts/deploy_bundle.sh — single source of truth).
+# Load team config (UC_CATALOG / UC_SCHEMA / LAKEBASE_*) from the synced .env.shared.
 from dotenv import load_dotenv
 
 load_dotenv(f"{REPO_ROOT}/.env.shared", override=False)
-
-# The Lakebase instance is PROVISIONED by the bundle as `agent-memory-<target>`.
-# Derive its name and look up the Postgres endpoint via the SDK, then expose them
-# the way the connection layer expects (provisioned-instance OAuth path) — no host
-# is hardcoded anywhere.
-from databricks.sdk import WorkspaceClient
-
-LAKEBASE_INSTANCE = f"agent-memory-{TARGET}"
-_instance = WorkspaceClient().database.get_database_instance(name=LAKEBASE_INSTANCE)
-os.environ["LAKEBASE_INSTANCE_NAME"] = LAKEBASE_INSTANCE
-os.environ["LAKEBASE_URL"] = f"postgresql://{_instance.read_write_dns}/databricks_postgres?sslmode=require"
-os.environ["LAKEBASE_DATABASE"] = "databricks_postgres"
-print(f"Lakebase instance={LAKEBASE_INSTANCE}  host={_instance.read_write_dns}")
 
 from agent_memory.config import Settings, ensure_databricks_auth
 
@@ -81,14 +59,9 @@ print(f"catalog={CATALOG}  schema={SCHEMA}  volume={VOLUME_NAME}")
 
 # COMMAND ----------
 
-# 1. UC schema + Volume for raw artifact bytes (idempotent). The schema is created
-#    here (not as a bundle resource) so its name stays the literal UC_SCHEMA that the
-#    app, jobs, and this notebook all share — dev-mode name prefixing would otherwise
-#    rename a bundle-managed schema to dev_<user>_<schema>. Needs CREATE SCHEMA on the
-#    catalog (the deploying user has it; the catalog itself must already exist).
-spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`")
+# 1. UC Volume for raw artifact bytes (idempotent — the bundle may have created it already).
 spark.sql(f"CREATE VOLUME IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`.`{VOLUME_NAME}`")
-print(f"Schema + Volume ready: /Volumes/{CATALOG}/{SCHEMA}/{VOLUME_NAME}")
+print(f"Volume ready: /Volumes/{CATALOG}/{SCHEMA}/{VOLUME_NAME}")
 
 # COMMAND ----------
 
@@ -123,34 +96,6 @@ with lakebase_connection(settings, register_pgvector=False) as conn, conn.cursor
         cur.execute(statement)
     conn.commit()
 print(f"Applied {len(statements)} Lakebase statements (artifacts, artifact_chunks, audit_log, profile_proposals, clients).")
-
-# COMMAND ----------
-
-# 3b. Grant the app service principal access to the Lakebase tables. The app binding
-#     gives the SP a Postgres role + CONNECT/CREATE, but the tables above are owned by
-#     you (this notebook), so the SP needs explicit table grants. ALL TABLES + ALTER
-#     DEFAULT PRIVILEGES keeps this correct across future schema migrations.
-import re
-
-if "app_sp" in dir() and app_sp and re.fullmatch(r"[0-9a-fA-F-]{36}", app_sp):
-    role = f'"{app_sp}"'  # the SP's Postgres role is its client id (UUID)
-    grant_sql = [
-        f"GRANT USAGE ON SCHEMA public TO {role}",
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
-        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}",
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {role}",
-    ]
-    try:
-        with lakebase_connection(settings, register_pgvector=False) as conn, conn.cursor() as cur:
-            for stmt in grant_sql:
-                cur.execute(stmt)
-            conn.commit()
-        print(f"Granted Lakebase table access to app SP {app_sp}.")
-    except Exception as exc:  # noqa: BLE001 — SP role may not exist yet; surface + continue
-        print(f"Lakebase SP grant skipped ({exc!r}). Re-run after the app's first deploy.")
-else:
-    print("App SP id unavailable — skipping Lakebase SP grant (re-run cell 2 first).")
 
 # COMMAND ----------
 

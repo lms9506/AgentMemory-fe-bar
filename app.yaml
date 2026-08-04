@@ -1,0 +1,39 @@
+# Databricks App entry (bundle deploy uses repo root as source_code_path).
+command: ["python", "-m", "agent_memory.ui.server"]
+
+env:
+  - name: DATABRICKS_APP_NAME
+    value: smart-advise
+  - name: BUNDLE_TARGET
+    value: dev
+  - name: LAKEBASE_URL
+    value: postgresql://ep-royal-tree-e108d0tb.database.eastus2.azuredatabricks.net/databricks_postgres?sslmode=require
+  - name: LAKEBASE_INSTANCE_NAME
+    value: smart-advise
+  - name: UC_CATALOG
+    value: michael_egli
+  - name: UC_SCHEMA
+    value: smart_advise
+  - name: DATABRICKS_SQL_WAREHOUSE_ID
+    value: 148ccb90800933a1
+  - name: FM_API_ENDPOINT
+    value: databricks-meta-llama-3-3-70b-instruct
+  - name: FM_API_EMBEDDING_ENDPOINT
+    value: databricks-gte-large-en
+  - name: MLFLOW_EXPERIMENT_NAME
+    value: /Shared/smart-advise/dev
+  - name: LAKEBASE_DATABASE
+    value: databricks_postgres
+  - name: VOLUME_NAME
+    value: smart_advise_raw
+  - name: MAX_UPLOAD_BYTES
+    value: "26214400"
+  - name: MANAGED_MEMORY_STORE
+    value: michael_egli.smart_advise.client_profiles
+  - name: MANAGED_MEMORY_ENABLED
+    value: "true"
+
+resources:
+  - name: lakebase-db
+    database:
+      instance: smart-advise

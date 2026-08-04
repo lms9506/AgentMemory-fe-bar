@@ -310,6 +310,36 @@ export async function sendChatStream(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Managed memory search (NEW — one allowed addition per task brief)
+// GET /api/managed-memory/search?client_id=&query=&top_k=
+// ──────────────────────────────────────────────────────────────────────────────
+
+export type ManagedMemoryHit = {
+  id: string;
+  content: string;
+  score: number;
+  source?: string | null;
+};
+
+export type ManagedMemorySearchResult = {
+  enabled: boolean;
+  hits: ManagedMemoryHit[];
+};
+
+export function searchManagedMemory(
+  clientId: string,
+  query: string,
+  topK = 3,
+): Promise<ManagedMemorySearchResult> {
+  const q = new URLSearchParams({
+    client_id: clientId,
+    query,
+    top_k: String(topK),
+  });
+  return json<ManagedMemorySearchResult>(`/api/managed-memory/search?${q}`);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Utilities
 // ──────────────────────────────────────────────────────────────────────────────
 

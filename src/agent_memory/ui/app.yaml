@@ -1,0 +1,2 @@
+# Local-only reference; Databricks deploy uses repo-root app.yaml.
+command: ["python", "-m", "agent_memory.ui.server"]

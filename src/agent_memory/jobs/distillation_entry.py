@@ -12,7 +12,6 @@ from agent_memory.config import (
     _token_from_workspace_client,
     ensure_databricks_auth,
     get_workspace_client,
-    set_mlflow_experiment,
 )
 from agent_memory.memory.distillation import run_distillation
 
@@ -40,8 +39,7 @@ def main() -> None:
     parser.add_argument("--fm-endpoint")
     parser.add_argument("--fm-embedding-endpoint")
     parser.add_argument("--mlflow-experiment")
-    parser.add_argument("--lakebase-instance-name")
-    parser.add_argument("--lakebase-project")  # legacy autoscale model; unset for provisioned
+    parser.add_argument("--lakebase-project")
     parser.add_argument("--lakebase-branch")
     parser.add_argument("--lakebase-url")
     parser.add_argument("--lakebase-database")
@@ -57,7 +55,6 @@ def main() -> None:
     _setenv("FM_API_ENDPOINT", args.fm_endpoint)
     _setenv("FM_API_EMBEDDING_ENDPOINT", args.fm_embedding_endpoint)
     _setenv("MLFLOW_EXPERIMENT_NAME", args.mlflow_experiment)
-    _setenv("LAKEBASE_INSTANCE_NAME", args.lakebase_instance_name)
     _setenv("LAKEBASE_PROJECT", args.lakebase_project)
     _setenv("LAKEBASE_BRANCH", args.lakebase_branch)
     _setenv("LAKEBASE_URL", args.lakebase_url)
@@ -86,7 +83,8 @@ def main() -> None:
             "Use --dry-run only for LLM parse tests with injected sources in unit tests."
         )
 
-    set_mlflow_experiment(settings)
+    if settings.mlflow_experiment_name:
+        mlflow.set_experiment(settings.mlflow_experiment_name)
 
     proposal_store = None
     if args.hitl and not args.dry_run:

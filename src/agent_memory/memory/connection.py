@@ -107,8 +107,7 @@ def _conninfo_from_template(
     if static_uri:
         parsed = _parse_postgres_uri(static_uri)
         host = host or str(parsed["host"])
-        # LAKEBASE_URL carries no user (provisioned model derives it from the token
-        # identity); prefer an explicit LAKEBASE_USER env override when present.
+        # URL user field may be empty after app.yaml strip; prefer env override.
         url_user = str(parsed["user"])
         if not user and url_user:
             user = url_user

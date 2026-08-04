@@ -16,11 +16,6 @@ build/
 venv/
 .env
 .env.local
-# Generated from .env by scripts/deploy_bundle.sh (workspace-synced notebook config).
-.env.shared
-# Generated from resolved bundle values by scripts/deploy_bundle.sh (Databricks Apps
-# runtime config). Regenerated every deploy with workspace-specific ids — never committed.
-/app.yaml
 
 # uv
 .python-version

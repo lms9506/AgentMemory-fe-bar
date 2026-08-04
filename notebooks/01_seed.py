@@ -16,7 +16,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install ..
+# MAGIC %pip install /Workspace/Users/linus.meister@databricks.com/.bundle/agent-memory/dev/files
 
 # COMMAND ----------
 
@@ -29,31 +29,15 @@ except Exception:
 
 # COMMAND ----------
 
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# Repo root + target derived from this notebook's own workspace path (no hardcoded
-# user/target); the notebook lives at <REPO_ROOT>/notebooks/<name>, so REPO_ROOT is
-# two levels up and <target> is the directory above it.
-_nb_path = dbutils.notebook.entry_point.getDbutils().notebook().getContext().notebookPath().get()
-REPO_ROOT = "/Workspace" + os.path.dirname(os.path.dirname(_nb_path))
-TARGET = os.path.basename(os.path.dirname(REPO_ROOT))
+REPO_ROOT = "/Workspace/Users/linus.meister@databricks.com/.bundle/agent-memory/dev/files"
 FIXTURES = Path(REPO_ROOT) / "data" / "synthetic" / "fixtures"
 
 from dotenv import load_dotenv
 
 load_dotenv(f"{REPO_ROOT}/.env.shared", override=False)
-
-# Point at the bundle-provisioned Lakebase instance (agent-memory-<target>); look up
-# its Postgres endpoint via the SDK (matches 00_setup — no host hardcoded).
-from databricks.sdk import WorkspaceClient
-
-LAKEBASE_INSTANCE = f"agent-memory-{TARGET}"
-_instance = WorkspaceClient().database.get_database_instance(name=LAKEBASE_INSTANCE)
-os.environ["LAKEBASE_INSTANCE_NAME"] = LAKEBASE_INSTANCE
-os.environ["LAKEBASE_URL"] = f"postgresql://{_instance.read_write_dns}/databricks_postgres?sslmode=require"
-os.environ["LAKEBASE_DATABASE"] = "databricks_postgres"
 
 from agent_memory.config import Settings, ensure_databricks_auth
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import functools
 import os
 from dataclasses import dataclass
@@ -100,23 +99,6 @@ def ensure_databricks_auth(settings: Settings) -> bool:
         return True
     host = _normalize_host(settings.databricks_host)
     if not host:
-        # No explicit host/token/profile configured (e.g. inside a Databricks notebook
-        # or serverless job, where .env isn't present but the runtime provides ambient
-        # credentials). Fall back to the SDK default auth chain and adopt its host/token
-        # so downstream LangChain/embeddings clients get DATABRICKS_HOST/TOKEN set.
-        try:
-            from databricks.sdk import WorkspaceClient
-
-            client = WorkspaceClient()
-            client.current_user.me()
-            resolved_host = _normalize_host(client.config.host)
-            resolved_token = _token_from_workspace_client(client)
-            if resolved_host and resolved_token:
-                _set_workspace_env(resolved_host, resolved_token)
-                _AUTH_RESOLVED = True
-                return True
-        except Exception:
-            return False
         return False
 
     # M2M path: CLIENT_ID + CLIENT_SECRET (Databricks Apps standard injection).
@@ -153,28 +135,6 @@ def ensure_databricks_auth(settings: Settings) -> bool:
         return True
     except Exception:
         return False
-
-
-def set_mlflow_experiment(settings: Settings) -> None:
-    """Set the MLflow experiment, creating its parent workspace directory first.
-
-    `mlflow.set_experiment("/Shared/agent-memory/dev")` fails with NOT_FOUND if the
-    parent `/Shared/agent-memory` directory doesn't exist yet (MLflow won't create
-    nested parents). On a fresh workspace it never does, so we mkdir the parent (the
-    SDK's `mkdirs` is recursive + idempotent) before setting the experiment.
-    """
-    import mlflow
-
-    name = settings.mlflow_experiment_name
-    if not name:
-        return
-    if name.startswith("/"):
-        parent = name.rsplit("/", 1)[0]
-        if parent:
-            # best-effort; set_experiment will surface a real failure
-            with contextlib.suppress(Exception):
-                get_workspace_client(settings).workspace.mkdirs(parent)
-    mlflow.set_experiment(name)
 
 
 @functools.lru_cache(maxsize=1)
@@ -283,18 +243,13 @@ class Settings:
 
     @property
     def databricks_configured(self) -> bool:
-        # Prefer the frozen settings, but fall back to the live env: inside a notebook/
-        # job, ensure_databricks_auth() resolves ambient credentials and sets
-        # DATABRICKS_HOST/TOKEN *after* this Settings was frozen (with host=None), so the
-        # instance fields lag reality. Re-reading the env keeps this gate truthful.
-        host = self.databricks_host or _normalize_host(os.getenv("DATABRICKS_HOST"))
-        if not host:
+        if not self.databricks_host:
             return False
         if self.databricks_client_id and self.databricks_client_secret:
             return True
-        if self.databricks_token or os.getenv("DATABRICKS_TOKEN"):
+        if self.databricks_token:
             return True
-        return bool(self.databricks_profile or _infer_profile_from_host(host))
+        return bool(self.databricks_profile or _infer_profile_from_host(self.databricks_host))
 
     def auth_diagnostics(self) -> str:
         """Human-readable hint when auth fails (never includes secrets)."""

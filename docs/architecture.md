@@ -102,8 +102,7 @@ src/agent_memory/
 ├── tools/         ← LangChain tools the agent can call
 └── ui/            ← Databricks App backend + React frontend
 
-databricks.yml     ← DABs bundle (provisions Lakebase + warehouse + App + jobs; app env inline)
-databricks/        ← lakebase_schema.sql, delta_schema.sql
+databricks/        ← databricks.yml (DABs), app.yaml, lakebase_schema.sql, delta_schema.sql
 notebooks/         ← Setup + demo notebooks (the non-expert deploy path; read by humans)
 tests/             ← pytest suite
 data/synthetic/    ← Synthetic client + dossier-artifact generators

@@ -16,6 +16,12 @@ from fastapi.staticfiles import StaticFiles
 from agent_memory.agents.run import run_turn_with_state
 from agent_memory.agents.streaming import stream_advisor_events, stream_ingest_events
 from agent_memory.config import Settings, ensure_databricks_auth, get_workspace_client
+from agent_memory.memory.managed_memory import (
+    ManagedMemoryEntry,
+    format_profile_description,
+    format_profile_entry,
+    write_entry as managed_memory_write,
+)
 from agent_memory.memory.profile_models import DistilledClientProfile
 from agent_memory.memory.profile_store import DeltaProfileStore
 from agent_memory.memory.proposal_models import ProfileProposal
@@ -519,6 +525,22 @@ def _register_routes(app: FastAPI) -> None:
             if mapped is not None:
                 raise mapped from exc
             raise
+        # Best-effort managed-memory dual write; failure must not break the accept.
+        try:
+            proposal = LakebaseProposalStore().get_proposal(proposal_id)
+        except Exception:
+            proposal = None
+        if proposal is not None:
+            latest = DeltaProfileStore().get_profile(proposal.client_id)
+            if latest is not None:
+                managed_memory_write(
+                    ManagedMemoryEntry(
+                        scope=proposal.client_id,
+                        path="/memories/profile.md",
+                        contents=format_profile_entry(latest),
+                        description=format_profile_description(latest),
+                    )
+                )
         return ProposalActionResponse(
             status="accepted", proposal_id=proposal_id, delta_version=version
         )
@@ -564,9 +586,48 @@ def _register_routes(app: FastAPI) -> None:
             if mapped is not None:
                 raise mapped from exc
             raise
+        managed_memory_write(
+            ManagedMemoryEntry(
+                scope=client_id,
+                path="/memories/profile.md",
+                contents=format_profile_entry(profile),
+                description=format_profile_description(profile),
+            )
+        )
         return ProfileEditResponse(
             status="committed", client_id=client_id, delta_version=version
         )
+
+    @app.get("/api/managed-memory/search")
+    def managed_memory_search(client_id: str, query: str, top_k: int = 5) -> dict:
+        """Second retrieval lane over Databricks Managed Memory (Beta).
+
+        Response shape matches the frontend `ManagedMemorySearchResult`:
+        `{enabled, hits: [{id, content, score, source}], store}`.
+
+        Empty hits when the store is unset or the Beta is disabled.
+        """
+        from agent_memory.memory.managed_memory import (
+            is_enabled,
+            search as mm_search,
+            store_full_name,
+        )
+        raw = mm_search(client_id, query, top_k=top_k)
+        hits = []
+        for row in raw:
+            entry = row.get("memory_entry", {}) if isinstance(row, dict) else {}
+            hits.append({
+                "id": entry.get("path", ""),
+                # Prefer description (short); fall back to contents (long).
+                "content": entry.get("description") or entry.get("contents", ""),
+                "score": float(row.get("score", 0) or 0),
+                "source": entry.get("memory_store_name"),
+            })
+        return {
+            "enabled": is_enabled(),
+            "store": store_full_name(),
+            "hits": hits,
+        }
 
 
 def _proposal_to_out(p: ProfileProposal) -> ProposalOut:

@@ -1,0 +1,2 @@
+# Bundle definition lives at the repo root: ../databricks.yml
+# Run: databricks bundle deploy --target dev   (from AgentMemory/, not this folder)
