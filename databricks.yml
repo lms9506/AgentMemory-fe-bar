@@ -6,28 +6,35 @@ sync:
   include:
     - src/agent_memory/ui/frontend/dist/**
 
+# ── Inputs ────────────────────────────────────────────────────────────────────
+# Almost nothing is workspace-specific. Set your catalog/schema once in .env
+# (UC_CATALOG / UC_SCHEMA); scripts/deploy_bundle.sh exports them as BUNDLE_VAR_*
+# so they flow into these variables. Authenticate with
+# `databricks auth login --profile <p>` — the CLI supplies the host + identity,
+# so no workspace URL is pinned here. The Lakebase instance and SQL warehouse are
+# PROVISIONED by this bundle (below), so there are no ids/endpoints to copy.
 variables:
   catalog:
-    description: Unity Catalog for Delta tables
-    default: michael_egli
+    description: Unity Catalog for the Delta profile table, the UC Volume, and grants
+    default: agent_memory
   schema:
     description: UC schema for the accelerator
-    default: smart_advise
-  sql_warehouse_id:
-    description: SQL warehouse for Delta profile reads/writes
-    default: ""
-  lakebase_instance:
-    description: Lakebase instance name
-    default: smart-advise
-  lakebase_project:
-    description: Lakebase project path (projects/<name>)
-    default: projects/smart-advise
-  lakebase_branch:
-    description: Lakebase branch path
-    default: projects/smart-advise/branches/production
+    default: wealth_advisor
   volume_name:
     description: UC Volume name for raw artifact storage (dossier model)
-    default: smart_advise_raw
+    default: dossier_raw
+  fm_endpoint:
+    description: Foundation Model API chat endpoint
+    default: databricks-meta-llama-3-3-70b-instruct
+  fm_embedding_endpoint:
+    description: Foundation Model API embedding endpoint
+    default: databricks-gte-large-en
+  lakebase_capacity:
+    description: Lakebase instance capacity unit (CU_1 is the smallest)
+    default: CU_1
+  warehouse_size:
+    description: SQL warehouse cluster size
+    default: 2X-Small
 
 artifacts:
   agent_memory_wheel:
@@ -38,30 +45,43 @@ targets:
   dev:
     mode: development
     default: true
-    workspace:
-      host: https://adb-984752964297111.11.azuredatabricks.net
-      profile: adb-984752964297111
-    variables:
-      catalog: michael_egli
-      sql_warehouse_id: 148ccb90800933a1
-      lakebase_instance: smart-advise
-      lakebase_project: projects/smart-advise
-      lakebase_branch: projects/smart-advise/branches/production
+    # No workspace.host/profile pinned here — the CLI provides them from your auth
+    # (`databricks auth login --profile <p>`; deploy_bundle.sh exports
+    # DATABRICKS_CONFIG_PROFILE from .env). Keeps the bundle workspace-agnostic.
 
   prod:
     mode: production
-    workspace:
-      host: https://fevm-serverless-stable-2eacei.cloud.databricks.com
-      profile: fevm-serverless-stable-2eacei
     variables:
       catalog: agent_memory_prod
-      lakebase_instance: agent-memory-prod
-      lakebase_project: projects/agent-memory-prod
-      lakebase_branch: projects/agent-memory-prod/branches/production
 
 resources:
-  # Volume `${var.catalog}.${var.schema}.${var.volume_name}` already exists in the
-  # target workspace and is owned outside this bundle; do not manage it here.
+  # ── Provisioned data infrastructure ──────────────────────────────────────────
+  # Created on `bundle deploy` — no pre-existing instance/warehouse required. Their
+  # ids/endpoints are resolved by the bundle and referenced below via ${resources…}
+  # (and written to .env post-deploy by deploy_bundle.sh, for the notebooks + local
+  # tooling that connect outside the bundle).
+  database_instances:
+    lakebase:
+      name: agent-memory-${bundle.target}
+      capacity: ${var.lakebase_capacity}
+
+  sql_warehouses:
+    warehouse:
+      name: agent-memory-${bundle.target}
+      warehouse_type: PRO
+      cluster_size: ${var.warehouse_size}
+      enable_serverless_compute: true
+      auto_stop_mins: 10
+      max_num_clusters: 1
+
+  volumes:
+    dossier_raw_volume:
+      catalog_name: ${var.catalog}
+      schema_name: ${var.schema}
+      name: ${var.volume_name}
+      volume_type: MANAGED
+      # App SP gets READ+WRITE VOLUME in 00_setup.py (looked up from the deployed app).
+
   jobs:
     distillation_nightly:
       name: agent-memory-distillation-${bundle.target}
@@ -79,15 +99,14 @@ resources:
               databricks-host: ${workspace.host}
               uc-catalog: ${var.catalog}
               uc-schema: ${var.schema}
-              warehouse-id: ${var.sql_warehouse_id}
-              fm-endpoint: databricks-meta-llama-3-3-70b-instruct
-              fm-embedding-endpoint: databricks-gte-large-en
+              warehouse-id: ${resources.sql_warehouses.warehouse.id}
+              fm-endpoint: ${var.fm_endpoint}
+              fm-embedding-endpoint: ${var.fm_embedding_endpoint}
               mlflow-experiment: /Shared/agent-memory/${bundle.target}
-              lakebase-project: ${var.lakebase_project}
-              lakebase-branch: ${var.lakebase_branch}
-              lakebase-url: postgresql://ep-green-flower-e15qknd0.database.eastus2.azuredatabricks.net/databricks_postgres?sslmode=require
+              lakebase-instance-name: ${resources.database_instances.lakebase.name}
+              lakebase-url: postgresql://${resources.database_instances.lakebase.read_write_dns}/databricks_postgres?sslmode=require
               lakebase-database: databricks_postgres
-      # FEVM serverless-only workspaces — no job_clusters (see bundle resource examples).
+      # Serverless-only workspaces — no job_clusters (see bundle resource examples).
       environments:
         - environment_key: default
           spec:
@@ -112,13 +131,12 @@ resources:
               databricks-host: ${workspace.host}
               uc-catalog: ${var.catalog}
               uc-schema: ${var.schema}
-              warehouse-id: ${var.sql_warehouse_id}
-              fm-endpoint: databricks-meta-llama-3-3-70b-instruct
-              fm-embedding-endpoint: databricks-gte-large-en
+              warehouse-id: ${resources.sql_warehouses.warehouse.id}
+              fm-endpoint: ${var.fm_endpoint}
+              fm-embedding-endpoint: ${var.fm_embedding_endpoint}
               mlflow-experiment: /Shared/agent-memory/${bundle.target}
-              lakebase-project: ${var.lakebase_project}
-              lakebase-branch: ${var.lakebase_branch}
-              lakebase-url: postgresql://ep-green-flower-e15qknd0.database.eastus2.azuredatabricks.net/databricks_postgres?sslmode=require
+              lakebase-instance-name: ${resources.database_instances.lakebase.name}
+              lakebase-url: postgresql://${resources.database_instances.lakebase.read_write_dns}/databricks_postgres?sslmode=require
               lakebase-database: databricks_postgres
       environments:
         - environment_key: default
@@ -143,13 +161,12 @@ resources:
               databricks-host: ${workspace.host}
               uc-catalog: ${var.catalog}
               uc-schema: ${var.schema}
-              warehouse-id: ${var.sql_warehouse_id}
-              fm-endpoint: databricks-meta-llama-3-3-70b-instruct
-              fm-embedding-endpoint: databricks-gte-large-en
+              warehouse-id: ${resources.sql_warehouses.warehouse.id}
+              fm-endpoint: ${var.fm_endpoint}
+              fm-embedding-endpoint: ${var.fm_embedding_endpoint}
               mlflow-experiment: /Shared/agent-memory/${bundle.target}
-              lakebase-project: ${var.lakebase_project}
-              lakebase-branch: ${var.lakebase_branch}
-              lakebase-url: postgresql://ep-green-flower-e15qknd0.database.eastus2.azuredatabricks.net/databricks_postgres?sslmode=require
+              lakebase-instance-name: ${resources.database_instances.lakebase.name}
+              lakebase-url: postgresql://${resources.database_instances.lakebase.read_write_dns}/databricks_postgres?sslmode=require
               lakebase-database: databricks_postgres
       environments:
         - environment_key: default
@@ -159,12 +176,54 @@ resources:
               - dist/agent_memory-0.1.0-py3-none-any.whl
 
   apps:
-    smart_advise:
-      name: smart-advise-${bundle.target}
+    wealth_advisor:
+      name: wealth-advisor-${bundle.target}
       source_code_path: .
+      # Bind the provisioned Lakebase instance: gives the app SP a Postgres role +
+      # CONNECT/CREATE. The app mints a short-lived OAuth token at runtime (no
+      # password is injected) via the SDK, keyed on LAKEBASE_INSTANCE_NAME below.
       resources:
         - name: lakebase-db
-          postgres:
-            branch: ${var.lakebase_branch}
-            database: ${var.lakebase_branch}/databases/databricks-postgres
+          database:
+            instance_name: ${resources.database_instances.lakebase.name}
+            database_name: databricks_postgres
             permission: CAN_CONNECT_AND_CREATE
+      # App runtime env, templated from the inputs + the provisioned resources.
+      # This replaces the old hand-maintained root app.yaml (deleted) — every value
+      # is now derived, nothing workspace-specific is hardcoded.
+      config:
+        command: ["python", "-m", "agent_memory.ui.server"]
+        env:
+          - name: DATABRICKS_APP_NAME
+            value: wealth-advisor-${bundle.target}
+          # server.py names the HITL distillation job as agent-memory-distillation-hitl-<BUNDLE_TARGET>.
+          - name: BUNDLE_TARGET
+            value: ${bundle.target}
+          - name: UC_CATALOG
+            value: ${var.catalog}
+          - name: UC_SCHEMA
+            value: ${var.schema}
+          - name: VOLUME_NAME
+            value: ${var.volume_name}
+          - name: DATABRICKS_SQL_WAREHOUSE_ID
+            value: ${resources.sql_warehouses.warehouse.id}
+          - name: LAKEBASE_INSTANCE_NAME
+            value: ${resources.database_instances.lakebase.name}
+          - name: LAKEBASE_URL
+            value: postgresql://${resources.database_instances.lakebase.read_write_dns}/databricks_postgres?sslmode=require
+          - name: LAKEBASE_DATABASE
+            value: databricks_postgres
+          - name: FM_API_ENDPOINT
+            value: ${var.fm_endpoint}
+          - name: FM_API_EMBEDDING_ENDPOINT
+            value: ${var.fm_embedding_endpoint}
+          - name: MLFLOW_EXPERIMENT_NAME
+            value: /Shared/agent-memory/${bundle.target}
+          - name: MAX_UPLOAD_BYTES
+            value: "26214400"
+          # Managed agent-memory lane (complementary to the Lakebase/Delta path — ADR-0018).
+          # Store is derived from catalog/schema so it stays workspace-agnostic.
+          - name: MANAGED_MEMORY_ENABLED
+            value: "true"
+          - name: MANAGED_MEMORY_STORE
+            value: ${var.catalog}.${var.schema}.client_profiles

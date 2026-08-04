@@ -41,7 +41,7 @@ AgentMemory/
 
 The intended path is **DABs + the setup notebooks**:
 
-1. **Configure** — `cp .env.shared .env` and set your workspace values (catalog, schema, profile — comments in `.env.shared` explain each).
+1. **Configure** — `cp .env.example .env` and set your workspace values (catalog, schema, profile — comments in `.env.example` explain each).
 2. **Authenticate** — `databricks auth login --profile <your-profile>`.
 3. **Deploy infra + app** — from the repo root:
    ```bash

@@ -61,3 +61,5 @@ mlflow.db
 *.key
 credentials.json
 service-account*.json
+# Generated from .env by scripts/deploy_bundle.sh (workspace-synced notebook config).
+.env.shared
