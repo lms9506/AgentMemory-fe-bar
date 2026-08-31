@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -250,3 +251,44 @@ def ensure_artifact_chunks(cur: psycopg.Cursor) -> None:
         except Exception:
             cur.execute("ROLLBACK TO SAVEPOINT _ensure_artifact_chunks")
             cur.execute("RELEASE SAVEPOINT _ensure_artifact_chunks")
+
+
+# Tables the app service principal reads AND writes (episodic + semantic + proposals
+# + client registry). audit_log is deliberately excluded here — it is append-only, so
+# the SP gets only SELECT + INSERT on it (granted separately below).
+_APP_SP_RW_TABLES = ("artifacts", "artifact_chunks", "profile_proposals", "clients")
+
+# The Databricks-minted Postgres role for a service principal is its client_id, a UUID.
+# We interpolate it as a quoted identifier, so validate the shape to preclude injection.
+_UUID_RE = re.compile(r"\A[0-9a-fA-F-]{36}\Z")
+
+
+def grant_app_sp(cur: psycopg.Cursor, app_sp_client_id: str) -> None:
+    """Grant the app service-principal Postgres role access to the dossier tables.
+
+    The setup notebook creates the schema as the *deploying user*, so the tables are
+    owned by that user's role; the app connects as its own SP role and would hit
+    ``permission denied`` without these grants (the app can't read client artifacts).
+    Idempotent (GRANT is), savepoint-per-statement so a not-yet-provisioned SP role
+    fails loudly on its own line without aborting the surrounding transaction.
+
+    audit_log stays append-only: the SP gets SELECT + INSERT but never UPDATE/DELETE.
+    """
+    if not _UUID_RE.match(app_sp_client_id or ""):
+        raise ValueError(f"app_sp_client_id must be a UUID role name, got {app_sp_client_id!r}")
+    role = f'"{app_sp_client_id}"'  # quoted identifier (UUID contains hyphens)
+    stmts = [
+        f"GRANT USAGE ON SCHEMA public TO {role}",
+        f"GRANT SELECT, INSERT ON audit_log TO {role}",
+        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
+        *[f"GRANT SELECT, INSERT, UPDATE, DELETE ON {t} TO {role}" for t in _APP_SP_RW_TABLES],
+    ]
+    for statement in stmts:
+        cur.execute("SAVEPOINT _grant_app_sp")
+        try:
+            cur.execute(statement)  # type: ignore[arg-type]  # trusted DDL + validated UUID identifier
+            cur.execute("RELEASE SAVEPOINT _grant_app_sp")
+        except Exception:
+            cur.execute("ROLLBACK TO SAVEPOINT _grant_app_sp")
+            cur.execute("RELEASE SAVEPOINT _grant_app_sp")
+            raise

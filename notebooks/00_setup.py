@@ -70,6 +70,7 @@ print(f"Volume ready: /Volumes/{CATALOG}/{SCHEMA}/{VOLUME_NAME}")
 #    deployed app — no need to paste an id.
 from databricks.sdk import WorkspaceClient
 
+app_sp = None
 try:
     app_sp = WorkspaceClient().apps.get(APP_NAME).service_principal_client_id
     spark.sql(
@@ -87,13 +88,22 @@ except Exception as exc:  # noqa: BLE001 — surface the cause; grant is recover
 #    clients; drops the v1 turn tables). Uses the repo's OAuth Lakebase connection and the
 #    same statement splitter the apply-schema script uses.
 from agent_memory.memory.connection import lakebase_connection
-from agent_memory.memory.lakebase_ddl import split_sql_statements
+from agent_memory.memory.lakebase_ddl import grant_app_sp, split_sql_statements
 
 lakebase_sql = open(f"{REPO_ROOT}/databricks/lakebase_schema.sql").read()
 statements = split_sql_statements(lakebase_sql)
 with lakebase_connection(settings, register_pgvector=False) as conn, conn.cursor() as cur:
     for statement in statements:
         cur.execute(statement)
+    # The tables are owned by the deploying user; the app connects as its own SP role,
+    # which needs explicit grants or every /api/* query fails with 'permission denied'.
+    if app_sp:
+        grant_app_sp(cur, app_sp)
+        print(f"Granted app SP {app_sp} SELECT/INSERT/UPDATE/DELETE on the dossier tables "
+              "(SELECT/INSERT only on append-only audit_log).")
+    else:
+        print("WARNING: app SP not resolved earlier — skipped Lakebase table grants. "
+              "Re-run once the app is deployed, or grant the SP role manually.")
     conn.commit()
 print(f"Applied {len(statements)} Lakebase statements (artifacts, artifact_chunks, audit_log, profile_proposals, clients).")
 

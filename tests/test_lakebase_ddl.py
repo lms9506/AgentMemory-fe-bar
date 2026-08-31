@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from agent_memory.memory.lakebase_ddl import split_sql_statements
+import pytest
+
+from agent_memory.memory.lakebase_ddl import grant_app_sp, split_sql_statements
 
 # ---------------------------------------------------------------------------
 # Existing: split_sql_statements (unchanged)
@@ -228,3 +230,45 @@ def test_no_turn_embeddings_ddl():
 
     assert "turn_embeddings" not in ARTIFACT_CHUNKS_DDL.lower()
     assert "conversation_turns" not in ARTIFACT_CHUNKS_DDL.lower()
+
+
+# ---------------------------------------------------------------------------
+# grant_app_sp — app service-principal Lakebase grants (setup gap fix)
+# ---------------------------------------------------------------------------
+
+_APP_SP = "2ba28921-47d1-4dfa-a37e-b8be9dded04b"
+
+
+def _executed_sql(cur: MagicMock) -> list[str]:
+    return [c.args[0] for c in cur.execute.call_args_list]
+
+
+def test_grant_app_sp_emits_expected_grants():
+    cur = MagicMock()
+    grant_app_sp(cur, _APP_SP)
+    sql = " ".join(_executed_sql(cur))
+    role = f'"{_APP_SP}"'
+    # schema usage + sequence usage + rw tables + append-only audit_log
+    assert f"GRANT USAGE ON SCHEMA public TO {role}" in sql
+    assert f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}" in sql
+    for t in ("artifacts", "artifact_chunks", "profile_proposals", "clients"):
+        assert f"GRANT SELECT, INSERT, UPDATE, DELETE ON {t} TO {role}" in sql
+    # audit_log is append-only: SELECT+INSERT only, never UPDATE/DELETE
+    assert f"GRANT SELECT, INSERT ON audit_log TO {role}" in sql
+    assert "UPDATE, DELETE ON audit_log" not in sql
+
+
+def test_grant_app_sp_uses_savepoints():
+    cur = MagicMock()
+    grant_app_sp(cur, _APP_SP)
+    sql = _executed_sql(cur)
+    assert sql.count("SAVEPOINT _grant_app_sp") == sql.count("RELEASE SAVEPOINT _grant_app_sp")
+    assert any(s.startswith("SAVEPOINT") for s in sql)
+
+
+@pytest.mark.parametrize("bad", ["", "not-a-uuid", "robert'); DROP TABLE clients;--", "abc"])
+def test_grant_app_sp_rejects_non_uuid_role(bad):
+    cur = MagicMock()
+    with pytest.raises(ValueError, match="UUID role name"):
+        grant_app_sp(cur, bad)
+    cur.execute.assert_not_called()  # nothing executed on invalid input
