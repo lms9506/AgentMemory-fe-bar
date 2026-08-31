@@ -41,6 +41,7 @@ def main() -> None:
     parser.add_argument("--mlflow-experiment")
     parser.add_argument("--lakebase-project")
     parser.add_argument("--lakebase-branch")
+    parser.add_argument("--lakebase-instance-name")
     parser.add_argument("--lakebase-url")
     parser.add_argument("--lakebase-database")
     args = parser.parse_args()
@@ -57,6 +58,7 @@ def main() -> None:
     _setenv("MLFLOW_EXPERIMENT_NAME", args.mlflow_experiment)
     _setenv("LAKEBASE_PROJECT", args.lakebase_project)
     _setenv("LAKEBASE_BRANCH", args.lakebase_branch)
+    _setenv("LAKEBASE_INSTANCE_NAME", args.lakebase_instance_name)
     _setenv("LAKEBASE_URL", args.lakebase_url)
     _setenv("LAKEBASE_DATABASE", args.lakebase_database)
 
@@ -76,6 +78,9 @@ def main() -> None:
                 os.environ.setdefault("DATABRICKS_TOKEN", token)
         except Exception as err:
             raise SystemExit(f"Databricks auth failed. {settings.auth_diagnostics()}") from err
+        # Re-read so the backfilled DATABRICKS_HOST/TOKEN are reflected in the frozen
+        # Settings the lakebase_configured / databricks_configured checks below rely on.
+        settings = Settings.from_env()
 
     if not args.dry_run and not settings.lakebase_configured:
         raise SystemExit(

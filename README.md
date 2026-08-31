@@ -52,6 +52,28 @@ The intended path is **DABs + the setup notebooks**:
 
 > **Status:** the docs above describe the **target dossier design**. The implementation is mid-pivot from the v1 turn/session model (milestones M1–M9) to the dossier model — see `docs/progress.md` for exactly what's built vs. pending. Setup commands and notebook names settle as the rewrite lands.
 
+### Batch bulk-onboarding (Lakeflow)
+
+Alongside the interactive drag-drop, the accelerator ships a **batch** ingest
+surface for onboarding a whole book of clients at once (ADR-0019) — the full
+Databricks data journey, integrated end to end:
+
+```
+UC Volume _landing/  →  Lakeflow pipeline (Auto Loader → ai_parse_document → ai_query)
+  →  bronze/silver Delta (Unity Catalog)  →  Lakebase pgvector (hydrate)  →  Delta client_profile (distill)
+  →  Genie space (natural-language)  →  Databricks App
+```
+
+```bash
+uv run python scripts/seed_landing.py --extra-clients 10   # stage synthetic raw files
+databricks bundle run dossier_ingest_job --target dev       # pipeline → hydrate → distill
+uv run python scripts/setup_genie.py                        # Genie space over the Delta tables
+uv run python evidence/generate_evidence.py                 # text-readable execution evidence → evidence/
+```
+
+Or run `notebooks/03_bulk_onboard.py` top-to-bottom. See `evidence/` for committed
+run output (row counts, parsed OCR samples, distilled profiles, Genie transcript).
+
 ### Local development
 
 ```bash

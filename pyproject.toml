@@ -9,14 +9,13 @@ authors = [{ name = "Databricks Field Engineering" }]
 
 dependencies = [
     "databricks-sdk>=0.30.0",
-    "databricks-agents>=0.10.0",
     "langgraph>=0.2.0",
     "langchain>=0.3.0",
     "langchain-community>=0.3.0",
     "databricks-langchain>=0.4.0",
     "mlflow>=2.18.0",
     "psycopg[binary]>=3.2.0",
-    "pgvector>=0.3.0",
+    "pgvector>=0.4.2",
     "pydantic>=2.9.0",
     "python-dotenv>=1.0.0",
     "fastapi>=0.115.0",
@@ -29,12 +28,16 @@ agent-memory-chat = "agent_memory.agents.run:main"
 agent-memory-distill = "agent_memory.jobs.distillation_entry:main"
 agent-memory-app = "agent_memory.ui.server:main"
 agent-memory-eval = "agent_memory.jobs.eval_entry:main"
+agent-memory-hydrate = "agent_memory.jobs.hydrate_entry:main"
 
 [project.entry-points.distillation]
 distill = "agent_memory.jobs.distillation_entry:main"
 
 [project.entry-points.eval]
 eval = "agent_memory.jobs.eval_entry:main"
+
+[project.entry-points.hydrate]
+hydrate = "agent_memory.jobs.hydrate_entry:main"
 
 [project.optional-dependencies]
 dev = [

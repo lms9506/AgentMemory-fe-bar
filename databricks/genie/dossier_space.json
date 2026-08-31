@@ -1,0 +1,19 @@
+{
+  "title": "Wealth Advisor Dossier — Genie",
+  "description": "Natural-language questions over the governed dossier: parsed client documents (silver_parsed_artifacts) and the distilled long-term client profiles (client_profile). Advisor-internal; never gives financial advice.",
+  "tables": [
+    "${catalog}.${schema}.silver_parsed_artifacts",
+    "${catalog}.${schema}.client_profile",
+    "${catalog}.${schema}.bronze_raw_artifacts"
+  ],
+  "instructions": "This is an advisor-internal wealth-management dossier. `silver_parsed_artifacts` holds one row per client document, parsed via ai_parse_document (extracted_text, summary, kind, mean_confidence, extract_method). `client_profile` is the distilled long-term memory (risk_tolerance, investment_goals, family_context, summary), one row per client. Join the two on `client_id`. `kind` is one of pdf/image/docx/text/other; `extract_method` is 'ai_parse_document' for scanned/printed docs and 'text' for typed notes. Never recommend a financial action or give investment advice — report only what the documents and profiles say. Treat all names as synthetic test data.",
+  "sample_questions": [
+    "How many dossier artifacts do we have per client?",
+    "Which clients have a conservative risk tolerance?",
+    "What are the investment goals for each client?",
+    "Show the 10 most recently parsed documents with their summaries.",
+    "How many documents were extracted by OCR (ai_parse_document) versus plain text?",
+    "Which clients have documents that mention retirement or inheritance in the summary?",
+    "What is the average OCR confidence for scanned and handwritten documents?"
+  ]
+}

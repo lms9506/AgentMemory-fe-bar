@@ -82,7 +82,81 @@ resources:
       volume_type: MANAGED
       # App SP gets READ+WRITE VOLUME in 00_setup.py (looked up from the deployed app).
 
+  # ── Lakeflow batch bulk-onboarding (ADR-0019) ────────────────────────────────
+  # Declarative pipeline: UC Volume _landing/ → bronze_raw_artifacts (Auto Loader
+  # binaryFile) → silver_parsed_artifacts (ai_parse_document + ai_query summary).
+  # Governed under ${catalog}.${schema}; the .py deploys standalone (no wheel).
+  pipelines:
+    dossier_ingest:
+      name: agent-memory-dossier-ingest-${bundle.target}
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      serverless: true
+      photon: true
+      libraries:
+        - file:
+            path: databricks/pipelines/dossier_ingest.py
+      configuration:
+        dossier.landing_path: /Volumes/${var.catalog}/${var.schema}/${var.volume_name}/_landing
+        dossier.fm_endpoint: ${var.fm_endpoint}
+
   jobs:
+    # ── The batch journey, one run: pipeline → Lakebase hydrate → distill ────────
+    # raw Volume → (pipeline) Delta bronze/silver → (hydrate) Lakebase pgvector →
+    # (distill) governed client_profile in Delta. Triggered manually / on-demand.
+    dossier_ingest_job:
+      name: agent-memory-dossier-ingest-${bundle.target}
+      tasks:
+        - task_key: run_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.dossier_ingest.id}
+        - task_key: hydrate_lakebase
+          depends_on:
+            - task_key: run_pipeline
+          environment_key: default
+          python_wheel_task:
+            package_name: agent_memory
+            entry_point: hydrate
+            named_parameters:
+              databricks-host: ${workspace.host}
+              uc-catalog: ${var.catalog}
+              uc-schema: ${var.schema}
+              warehouse-id: ${resources.sql_warehouses.warehouse.id}
+              fm-embedding-endpoint: ${var.fm_embedding_endpoint}
+              lakebase-instance-name: ${resources.database_instances.lakebase.name}
+              lakebase-url: postgresql://${resources.database_instances.lakebase.read_write_dns}/databricks_postgres?sslmode=require
+              lakebase-database: databricks_postgres
+        - task_key: distill_profiles
+          depends_on:
+            - task_key: hydrate_lakebase
+          environment_key: default
+          python_wheel_task:
+            package_name: agent_memory
+            entry_point: distill
+            named_parameters:
+              lookback-days: "3650"
+              databricks-host: ${workspace.host}
+              uc-catalog: ${var.catalog}
+              uc-schema: ${var.schema}
+              warehouse-id: ${resources.sql_warehouses.warehouse.id}
+              fm-endpoint: ${var.fm_endpoint}
+              fm-embedding-endpoint: ${var.fm_embedding_endpoint}
+              mlflow-experiment: /Shared/agent-memory/${bundle.target}
+              lakebase-instance-name: ${resources.database_instances.lakebase.name}
+              lakebase-url: postgresql://${resources.database_instances.lakebase.read_write_dns}/databricks_postgres?sslmode=require
+              lakebase-database: databricks_postgres
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "4"
+            dependencies:
+              # Pin pgvector explicitly: the serverless base image ships an older
+              # pgvector that doesn't expose Vector at pgvector.psycopg, and the
+              # wheel's transitive requirement doesn't force an upgrade — an
+              # explicit top-level dep does.
+              - pgvector==0.4.2
+              - dist/agent_memory-0.1.0-py3-none-any.whl
+
     distillation_nightly:
       name: agent-memory-distillation-${bundle.target}
       schedule:
@@ -112,6 +186,11 @@ resources:
           spec:
             environment_version: "4"
             dependencies:
+              # Pin pgvector explicitly: the serverless base image ships an older
+              # pgvector that doesn't expose Vector at pgvector.psycopg, and the
+              # wheel's transitive requirement doesn't force an upgrade — an
+              # explicit top-level dep does.
+              - pgvector==0.4.2
               - dist/agent_memory-0.1.0-py3-none-any.whl
 
     distillation_hitl_nightly:
@@ -143,6 +222,11 @@ resources:
           spec:
             environment_version: "4"
             dependencies:
+              # Pin pgvector explicitly: the serverless base image ships an older
+              # pgvector that doesn't expose Vector at pgvector.psycopg, and the
+              # wheel's transitive requirement doesn't force an upgrade — an
+              # explicit top-level dep does.
+              - pgvector==0.4.2
               - dist/agent_memory-0.1.0-py3-none-any.whl
 
     eval_nightly:
@@ -173,6 +257,11 @@ resources:
           spec:
             environment_version: "4"
             dependencies:
+              # Pin pgvector explicitly: the serverless base image ships an older
+              # pgvector that doesn't expose Vector at pgvector.psycopg, and the
+              # wheel's transitive requirement doesn't force an upgrade — an
+              # explicit top-level dep does.
+              - pgvector==0.4.2
               - dist/agent_memory-0.1.0-py3-none-any.whl
 
   apps:

@@ -170,6 +170,36 @@ Architectural Decision Records for the **current** design. This log was rewritte
 
 ---
 
+## ADR-0019 — Batch bulk-onboarding via a Lakeflow declarative pipeline
+
+**Date:** 2026-08-28 · **Status:** Accepted
+
+_Note: ADR-0017 and ADR-0018 are reserved by the unmerged `linus` branch (PR #7, managed-memory positioning); this work branched from `main` and takes the next free numbers._
+
+**Context.** The accelerator had a single ingest surface: the interactive, synchronous one-file drag-drop (`agents/ingest_graph.py`). Two forces pushed for a second, batch surface: (1) the real advisor workflow of **inheriting a book of clients** — a pile of historical documents to onboard at once, which is a data-engineering job, not a series of clicks; (2) demonstrating the full Databricks data-journey — raw dataset → Lakeflow ingest → Unity Catalog governance → Gen AI enrichment → Lakebase serving — as an integrated pipeline.
+
+**Decision.** Add a **Lakeflow declarative pipeline** (`databricks/pipelines/dossier_ingest.py`) that Auto Loads raw files from a UC Volume `_landing/{client_id}/` zone into `bronze_raw_artifacts` (binaryFile + SHA-256 hash + derived client_id/kind), then produces `silver_parsed_artifacts` by running `ai_parse_document` (extraction) and `ai_query` (per-artifact summary) inline — both UC-governed Delta tables. A downstream `hydrate` wheel task (`jobs/hydrate_entry.py`) reads silver and loads Lakebase pgvector reusing the existing store/embedding primitives, and a final `distill` task populates the Delta `client_profile`. The three run as one `dossier_ingest_job` (pipeline → hydrate → distill). Synthetic raw data is staged by `scripts/seed_landing.py` (personas' mixed-format fixtures + generated text clients at `client_1000+`).
+
+**Why.** Lakeflow declarative pipelines are the canonical, lowest-effort way to get incremental ingest + lineage + UC governance for a raw file drop; Auto Loader handles new-file detection for free. Doing extraction/summary with native SQL AI functions (`ai_parse_document`, `ai_query`) keeps the "make it intelligent" step in-pipeline with no extra compute or Python. Keeping chunk/embed + Lakebase load in a separate wheel task preserves the three-tier discipline (Volume=bytes, Delta=governed batch, Lakebase=live serving) and reuses tested code. **Alternative rejected:** routing batch ingest through the interactive LangGraph one file at a time — wrong tool (no lineage, no incremental semantics, serial). **Trade-off accepted:** the pipeline inlines a copy of `extract_text_from_variant` (`variant_to_text`) so it deploys as a single `.py` with no wheel install on pipeline compute; `tests/test_pipeline_parser.py` asserts parity with the canonical parser so the two cannot silently diverge.
+
+**Consequences.** A second ingest path to keep in sync with the artifact schema; the parity test guards the one duplicated function. The pipeline is validated live at deploy time (offline tests cover the pure helpers only, as is standard for DLT). Generated batch clients carry a derived display name (`Client 1000`) since the pipeline doesn't propagate the persona-style names.
+
+---
+
+## ADR-0020 — Genie space over the governed dossier tables
+
+**Date:** 2026-08-28 · **Status:** Accepted
+
+**Context.** The end-to-end journey needs a natural-language query surface. The advisor-facing value ("which clients are conservative?", "how many documents mention retirement?") sits on the governed Delta tables the pipeline and distillation job produce, not on the Lakebase live store (which is Postgres, not Genie-queryable).
+
+**Decision.** Provision a **Genie space** over `silver_parsed_artifacts`, `client_profile`, and `bronze_raw_artifacts`, defined declaratively in `databricks/genie/dossier_space.json` (title, tables, instructions, sample questions) and created by `scripts/setup_genie.py` via the Genie Spaces REST API, with a printed manual-setup fallback since that API is in preview. Instructions bound the space to advisor-internal, no-financial-advice framing.
+
+**Why.** Genie is the Databricks-native NL-over-SQL surface; pointing it at the UC Delta tables reuses the governance already in place and needs no new modeling. A version-controlled JSON definition keeps the space reproducible regardless of API drift. **Alternative rejected:** a bespoke text-to-SQL agent — redundant with Genie and outside the accelerator's scope. **Not chosen:** a DAB `genie` resource — no first-class bundle resource type exists yet, so a script + committed definition is the reproducible path.
+
+**Consequences.** Genie sees only the Delta tables (client registry display names live in Lakebase, so NL answers key on `client_id`). The space is created out-of-band from `bundle deploy`; re-running `setup_genie.py` refreshes it.
+
+---
+
 ## ADR template (copy when adding a new one)
 
 ```

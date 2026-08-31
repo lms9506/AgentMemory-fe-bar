@@ -38,6 +38,7 @@ def main() -> None:
     parser.add_argument("--mlflow-experiment")
     parser.add_argument("--lakebase-project")
     parser.add_argument("--lakebase-branch")
+    parser.add_argument("--lakebase-instance-name")
     parser.add_argument("--lakebase-url")
     parser.add_argument("--lakebase-database")
     args = parser.parse_args()
@@ -52,35 +53,26 @@ def main() -> None:
     _setenv("MLFLOW_EXPERIMENT_NAME", args.mlflow_experiment)
     _setenv("LAKEBASE_PROJECT", args.lakebase_project)
     _setenv("LAKEBASE_BRANCH", args.lakebase_branch)
+    _setenv("LAKEBASE_INSTANCE_NAME", args.lakebase_instance_name)
     _setenv("LAKEBASE_URL", args.lakebase_url)
     _setenv("LAKEBASE_DATABASE", args.lakebase_database)
 
     import mlflow
 
     from agent_memory.agents.llm import build_chat_model
-    from agent_memory.config import (
-        Settings,
-        _token_from_workspace_client,
-        ensure_databricks_auth,
-        get_workspace_client,
-    )
+    from agent_memory.config import Settings, establish_runtime_auth
     from agent_memory.eval.response import ResponseCase, run_response_eval
     from agent_memory.eval.retrieval import RetrievalCase, run_retrieval_eval
     from agent_memory.memory.store import LakebaseArtifactStore
 
     settings = Settings.from_env()
-    if not ensure_databricks_auth(settings):
-        try:
-            wc = get_workspace_client(settings)
-            wc.current_user.me()
-            host = getattr(wc.config, "host", None)
-            token = _token_from_workspace_client(wc)
-            if host:
-                os.environ.setdefault("DATABRICKS_HOST", host)
-            if token:
-                os.environ.setdefault("DATABRICKS_TOKEN", token)
-        except Exception as err:
-            raise SystemExit(f"Databricks auth failed. {settings.auth_diagnostics()}") from err
+    try:
+        establish_runtime_auth(settings)  # .env/profile locally; SDK runtime creds on serverless jobs
+    except RuntimeError as err:
+        raise SystemExit(str(err)) from err
+    # Re-read so the backfilled DATABRICKS_HOST/TOKEN are reflected in the frozen Settings
+    # that build_chat_model / the store rely on (matches distillation_entry).
+    settings = Settings.from_env()
 
     if settings.mlflow_experiment_name:
         mlflow.set_experiment(settings.mlflow_experiment_name)

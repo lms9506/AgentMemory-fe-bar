@@ -47,14 +47,18 @@ def _client_id(index: int) -> str:
     return f"client_{index:04d}"
 
 
-def generate_clients(*, count: int, rng: random.Random) -> list[ClientProfile]:
-    """Build `count` synthetic client profiles."""
+def generate_clients(*, count: int, rng: random.Random, start_index: int = 0) -> list[ClientProfile]:
+    """Build `count` synthetic client profiles.
+
+    `start_index` offsets the client-id numbering so a generated batch can avoid
+    colliding with other id ranges (e.g. the hand-authored personas at 0000-0002).
+    """
     clients: list[ClientProfile] = []
     for i in range(count):
         goals = list(rng.choice(_GOALS))
         clients.append(
             ClientProfile(
-                client_id=_client_id(i),
+                client_id=_client_id(start_index + i),
                 display_name=f"{rng.choice(_FIRST)} {rng.choice(_LAST)}",
                 risk_tolerance=rng.choice(_RISK),
                 investment_goals=goals,
@@ -300,10 +304,14 @@ def generate_dataset(
     client_count: int = 5,
     artifacts_per_client: int = 3,
     seed: int = 42,
+    start_index: int = 0,
 ) -> SyntheticDataset:
-    """Produce a full synthetic dataset for demos and tests."""
+    """Produce a full synthetic dataset for demos and tests.
+
+    `start_index` offsets the generated client-id range (see `generate_clients`).
+    """
     rng = random.Random(seed)
-    clients = generate_clients(count=client_count, rng=rng)
+    clients = generate_clients(count=client_count, rng=rng, start_index=start_index)
     artifacts = generate_artifacts(
         clients, artifacts_per_client=artifacts_per_client, rng=rng
     )

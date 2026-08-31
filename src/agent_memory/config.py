@@ -137,6 +137,30 @@ def ensure_databricks_auth(settings: Settings) -> bool:
         return False
 
 
+def establish_runtime_auth(settings: Settings) -> None:
+    """Ensure DATABRICKS_HOST/TOKEN are set for LangChain + SQL, covering serverless jobs.
+
+    Tries `ensure_databricks_auth` first (.env / CLI profile / PAT paths used locally
+    and in notebooks). In a serverless job there is no .env or profile, so on failure
+    it falls back to the SDK's runtime credential provider (injected by the platform)
+    and backfills the env vars LangChain reads directly. Raises RuntimeError if neither
+    path works. Mirrors the fallback in `jobs/distillation_entry.py`.
+    """
+    if ensure_databricks_auth(settings):
+        return
+    try:
+        wc = get_workspace_client(settings)
+        wc.current_user.me()
+        host = getattr(wc.config, "host", None)
+        token = _token_from_workspace_client(wc)
+        if host:
+            os.environ.setdefault("DATABRICKS_HOST", host)
+        if token:
+            os.environ.setdefault("DATABRICKS_TOKEN", token)
+    except Exception as err:
+        raise RuntimeError(f"Databricks auth failed. {settings.auth_diagnostics()}") from err
+
+
 @functools.lru_cache(maxsize=1)
 def get_workspace_client(settings: Settings) -> WorkspaceClient:
     """Single auth-resolution factory for the whole app.
