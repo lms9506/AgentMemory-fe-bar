@@ -2,7 +2,9 @@
 
 ## Vision
 
-Deliver a **Databricks Solution Accelerator** that demonstrates governed, durable agent memory for regulated industries, anchored in a Financial Services **Wealth Advisor** scenario. A Databricks SA should be able to clone the repo and stand up a working PoC against their own workspace in under two weeks — deployable through **DABs + setup notebooks by someone without deep technical knowledge**.
+**The business problem.** Wealth-management firms want to deliver private-banking-quality advice to far more clients than the high-touch model can economically serve — but advisors rarely have a complete, current picture of the client in front of them. Context is scattered across CRM notes, PDFs, statements, and email, and across colleagues and months. Two costs follow: (1) advisors spend only ~20% of the week with clients and ~5.3 hrs/week just preparing for meetings by re-reading what the firm already knows (Kitces 2019; McKinsey 2025 puts bank RMs at 25–30% of time in client dialogue); (2) an incomplete client view leaks revenue and retention — clients spread assets across ~2.3 providers, only ~17% call their advisory experience seamless/personalized, and 29% intend to switch primary provider within three years (EY 2025; Capgemini 2026). See the README for the quantified, benchmark-based value model.
+
+**The solution.** Deliver a **Databricks Solution Accelerator** that gives the advisor a governed, durable, longitudinal client profile they can query in seconds — collapsing meeting prep and surfacing the full relationship so no suitability-relevant opportunity is missed. Anchored in a Financial Services **Wealth Advisor** scenario. A Databricks SA should be able to clone the repo and stand up a working PoC against their own workspace in under two weeks — deployable through **DABs + setup notebooks by someone without deep technical knowledge**.
 
 ## The model: advisor-fed client dossier
 
@@ -18,7 +20,7 @@ Why this is *memory*, not RAG: RAG is stateless retrieval over a static corpus. 
 
 | Persona | Goal | Pain |
 |---|---|---|
-| **Wealth advisor** | Walk into a client meeting fully briefed in 30s, and brainstorm ideas against everything on file | Re-reading scattered CRM notes and PDFs; losing context across months and across colleagues |
+| **Wealth advisor** | Walk into a client meeting fully briefed in 30s, and brainstorm ideas against everything on file | Burns ~5.3 hrs/week re-reading scattered CRM notes and PDFs; loses context across months and colleagues; misses share-of-wallet and suitability opportunities because the full client picture isn't visible |
 | **Compliance officer** | Prove every belief the system holds about a client traces to a source document, with an audit trail | Black-box agents; no traceable memory state |
 | **Databricks SA (accelerator user)** | Stand up the demo against their own workspace in <2 weeks, without deep platform expertise | Generic memory demos that ignore governance and are hard to deploy |
 
